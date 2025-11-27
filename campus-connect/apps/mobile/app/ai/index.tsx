@@ -22,6 +22,7 @@ import {
 } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { useAuth } from '@/providers';
+import { aiService } from '@/lib/ai-service';
 
 interface Message {
   id: string;
@@ -68,25 +69,31 @@ export default function AIScreen() {
     setInputText('');
     setIsLoading(true);
 
-    // Simulate AI response (replace with actual API call)
-    setTimeout(() => {
-      const responses = [
-        "That's a great question! Based on campus resources, I'd recommend checking with your academic advisor for personalized guidance on this matter.",
-        "I can help with that! The Student Services office in the Administration Building handles those requests. Their hours are 8 AM - 5 PM on weekdays.",
-        "For studying effectively, I suggest using the Pomodoro technique: 25 minutes of focused study followed by a 5-minute break. The library also offers quiet study rooms you can book!",
-        "Looking at upcoming events, there's a Career Fair this Thursday and a Student Organization showcase next Monday. Would you like more details about either?",
-      ];
+    // Call AI API
+    try {
+      const response = await aiService.sendMessageToBot(inputText.trim());
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: responses[Math.floor(Math.random() * responses.length)],
+        content: response.error
+          ? "I'm having trouble connecting to the server right now. Please try again later."
+          : response.reply,
         timestamp: new Date(),
       };
 
       setMessages((prev) => [...prev, aiMessage]);
+    } catch (error) {
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: "Sorry, something went wrong. Please check your internet connection.",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
       setIsLoading(false);
-    }, 1500);
+    }
   };
 
   const handleSuggestedQuestion = (question: string) => {
@@ -122,9 +129,8 @@ export default function AIScreen() {
             <Animated.View
               key={message.id}
               entering={FadeInDown.duration(400).delay(index * 50)}
-              className={`flex-row mb-4 ${
-                message.role === 'user' ? 'justify-end' : 'justify-start'
-              }`}
+              className={`flex-row mb-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'
+                }`}
             >
               {message.role === 'assistant' && (
                 <View className="w-8 h-8 rounded-full bg-purple-100 items-center justify-center mr-2 mt-1">
@@ -132,23 +138,20 @@ export default function AIScreen() {
                 </View>
               )}
               <View
-                className={`max-w-[80%] rounded-2xl p-4 ${
-                  message.role === 'user'
+                className={`max-w-[80%] rounded-2xl p-4 ${message.role === 'user'
                     ? 'bg-blue-500 rounded-br-sm'
                     : 'bg-white shadow-sm rounded-bl-sm'
-                }`}
+                  }`}
               >
                 <Text
-                  className={`text-base ${
-                    message.role === 'user' ? 'text-white' : 'text-gray-800'
-                  }`}
+                  className={`text-base ${message.role === 'user' ? 'text-white' : 'text-gray-800'
+                    }`}
                 >
                   {message.content}
                 </Text>
                 <Text
-                  className={`text-xs mt-2 ${
-                    message.role === 'user' ? 'text-white/60' : 'text-gray-400'
-                  }`}
+                  className={`text-xs mt-2 ${message.role === 'user' ? 'text-white/60' : 'text-gray-400'
+                    }`}
                 >
                   {message.timestamp.toLocaleTimeString([], {
                     hour: '2-digit',
@@ -219,9 +222,8 @@ export default function AIScreen() {
               />
             </View>
             <TouchableOpacity
-              className={`w-12 h-12 rounded-full items-center justify-center ${
-                inputText.trim() && !isLoading ? 'bg-purple-500' : 'bg-gray-200'
-              }`}
+              className={`w-12 h-12 rounded-full items-center justify-center ${inputText.trim() && !isLoading ? 'bg-purple-500' : 'bg-gray-200'
+                }`}
               onPress={sendMessage}
               disabled={!inputText.trim() || isLoading}
             >
