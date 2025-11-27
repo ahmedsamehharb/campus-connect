@@ -17,40 +17,20 @@ import {
   Navigation,
   ChevronRight,
   AlertCircle,
+  Building,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { BUILDING_LOCATIONS, openGoogleMaps, openNavigation } from '@/lib/maps';
 
-// Mock transportation data
-const busRoutes = [
-  {
-    id: '1',
-    name: 'Blue Route',
-    color: '#3B82F6',
-    nextArrival: '3 min',
-    frequency: 'Every 10 min',
-    status: 'on-time',
-    stops: ['Student Union', 'Library', 'Engineering', 'Dorms'],
-  },
-  {
-    id: '2',
-    name: 'Red Route',
-    color: '#EF4444',
-    nextArrival: '7 min',
-    frequency: 'Every 15 min',
-    status: 'on-time',
-    stops: ['Main Gate', 'Science Center', 'Sports Complex', 'Parking Lot A'],
-  },
-  {
-    id: '3',
-    name: 'Green Route',
-    color: '#10B981',
-    nextArrival: '12 min',
-    frequency: 'Every 20 min',
-    status: 'delayed',
-    delay: '5 min',
-    stops: ['Downtown', 'Hospital', 'Campus North', 'Campus South'],
-  },
-];
+// Campus building and street locations
+const buildingOptions = BUILDING_LOCATIONS.map((building) => ({
+  id: building.id,
+  name: building.name,
+  type: building.type,
+  address: building.address,
+  color: building.type === 'building' ? '#3B82F6' : '#10B981',
+  icon: building.type === 'building' ? '🏢' : '📍',
+}));
 
 const parkingLots = [
   {
@@ -113,7 +93,7 @@ export default function TransportScreen() {
     <View className="flex-1 bg-gray-50">
       <Stack.Screen
         options={{
-          title: 'Transportation',
+          title: 'Navigate',
           headerLeft: () => (
             <TouchableOpacity onPress={() => router.back()} className="p-2">
               <ChevronLeft size={24} color="#374151" />
@@ -138,13 +118,13 @@ export default function TransportScreen() {
                 activeTab === 'bus' ? 'bg-white' : ''
               }`}
             >
-              <Bus size={18} color={activeTab === 'bus' ? '#3B82F6' : '#6B7280'} />
+              <Building size={18} color={activeTab === 'bus' ? '#3B82F6' : '#6B7280'} />
               <Text
                 className={`ml-2 font-medium ${
                   activeTab === 'bus' ? 'text-blue-500' : 'text-gray-500'
                 }`}
               >
-                Shuttles
+                Buildings
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -166,54 +146,39 @@ export default function TransportScreen() {
         </Animated.View>
 
         {activeTab === 'bus' ? (
-          /* Bus Routes */
+          /* Building Locations */
           <Animated.View entering={FadeInDown.duration(500).delay(100)} className="px-4 mt-6">
-            <Text className="text-lg font-semibold text-gray-800 mb-3">Shuttle Routes</Text>
+            <Text className="text-lg font-semibold text-gray-800 mb-3">Campus Locations</Text>
 
-            {busRoutes.map((route, index) => (
+            {buildingOptions.map((building, index) => (
               <Animated.View
-                key={route.id}
+                key={building.id}
                 entering={FadeInDown.duration(400).delay(150 + index * 50)}
               >
                 <TouchableOpacity
                   className="bg-white rounded-xl p-4 mb-3 shadow-sm"
                   activeOpacity={0.7}
+                  onPress={() => openGoogleMaps(building.address)}
                 >
                   <View className="flex-row items-center justify-between mb-3">
-                    <View className="flex-row items-center">
-                      <View
-                        className="w-4 h-4 rounded-full mr-3"
-                        style={{ backgroundColor: route.color }}
-                      />
-                      <Text className="text-lg font-semibold text-gray-800">{route.name}</Text>
-                    </View>
-                    {route.status === 'delayed' ? (
-                      <View className="flex-row items-center bg-yellow-100 px-2 py-1 rounded-full">
-                        <AlertCircle size={14} color="#F59E0B" />
-                        <Text className="text-xs text-yellow-700 ml-1">+{route.delay}</Text>
-                      </View>
-                    ) : (
-                      <View className="bg-green-100 px-2 py-1 rounded-full">
-                        <Text className="text-xs text-green-700">On Time</Text>
-                      </View>
-                    )}
-                  </View>
-
-                  <View className="flex-row items-center mb-3">
                     <View className="flex-row items-center flex-1">
-                      <Clock size={16} color="#6B7280" />
-                      <Text className="text-sm text-gray-600 ml-2">
-                        Next: <Text className="font-semibold text-blue-500">{route.nextArrival}</Text>
-                      </Text>
+                      <Text className="text-2xl mr-3">{building.icon}</Text>
+                      <View className="flex-1">
+                        <Text className="text-lg font-semibold text-gray-800">{building.name}</Text>
+                        <Text className="text-xs text-gray-500 mt-0.5 capitalize">{building.type}</Text>
+                      </View>
                     </View>
-                    <Text className="text-sm text-gray-500">{route.frequency}</Text>
+                    <View
+                      className="w-3 h-3 rounded-full"
+                      style={{ backgroundColor: building.color }}
+                    />
                   </View>
 
                   <View className="pt-3 border-t border-gray-100">
                     <View className="flex-row items-center">
                       <MapPin size={14} color="#9CA3AF" />
-                      <Text className="text-sm text-gray-500 ml-2" numberOfLines={1}>
-                        {route.stops.join(' → ')}
+                      <Text className="text-sm text-gray-500 ml-2" numberOfLines={2}>
+                        {building.address}
                       </Text>
                     </View>
                   </View>
@@ -221,13 +186,15 @@ export default function TransportScreen() {
               </Animated.View>
             ))}
 
-            {/* Map Button */}
+            {/* Buses Button */}
             <TouchableOpacity
               className="bg-blue-500 rounded-xl py-4 items-center flex-row justify-center mt-4"
-              onPress={() => openMaps('University Campus')}
+              onPress={() => router.push('/transport/maps')}
+              activeOpacity={0.8}
             >
-              <Navigation size={20} color="#FFFFFF" />
-              <Text className="text-white font-semibold ml-2">View Campus Map</Text>
+              <Bus size={20} color="#FFFFFF" />
+              <Text className="text-white font-semibold ml-2">Buses</Text>
+              <ChevronRight size={20} color="#FFFFFF" style={{ marginLeft: 8 }} />
             </TouchableOpacity>
           </Animated.View>
         ) : (
