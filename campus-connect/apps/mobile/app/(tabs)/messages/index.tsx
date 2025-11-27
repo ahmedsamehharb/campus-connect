@@ -7,10 +7,14 @@ import {
   RefreshControl,
   TextInput,
   ActivityIndicator,
+  Modal,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { Search, Edit, User, Users, MessageCircle, ChevronRight } from 'lucide-react-native';
+import { Search, Edit, User, Users, MessageCircle, X, UserPlus } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/providers';
@@ -38,6 +42,14 @@ interface Conversation {
   created_at: string;
 }
 
+interface UserSearchResult {
+  id: string;
+  name: string;
+  avatar_url?: string;
+  major?: string;
+  year?: string;
+}
+
 export default function MessagesScreen() {
   const { user } = useAuth();
   const colorScheme = useColorScheme();
@@ -48,6 +60,13 @@ export default function MessagesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+  
+  // New Chat Modal state
+  const [showNewChat, setShowNewChat] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
+  const [searchingUsers, setSearchingUsers] = useState(false);
+  const [startingConversation, setStartingConversation] = useState(false);
 
   const fetchConversations = useCallback(async () => {
     if (!user?.id) {
@@ -83,6 +102,63 @@ export default function MessagesScreen() {
     setRefreshing(true);
     await fetchConversations();
   }, [fetchConversations]);
+
+  // Search users for new chat
+  useEffect(() => {
+    const searchUsers = async () => {
+      if (!userSearchQuery.trim() || !user?.id) {
+        setSearchResults([]);
+        return;
+      }
+
+      setSearchingUsers(true);
+      const { data } = await api.searchUsers(userSearchQuery, user.id);
+      if (data) {
+        setSearchResults(data);
+      }
+      setSearchingUsers(false);
+    };
+
+    const debounce = setTimeout(searchUsers, 300);
+    return () => clearTimeout(debounce);
+  }, [userSearchQuery, user?.id]);
+
+  // Start a new conversation
+  const startConversation = async (otherUser: UserSearchResult) => {
+    if (!user?.id) {
+      Alert.alert('Error', 'You must be logged in to start a conversation');
+      return;
+    }
+
+    setStartingConversation(true);
+    console.log('Starting conversation with:', otherUser.name, otherUser.id);
+
+    try {
+      const result = await api.createDirectConversation(user.id, otherUser.id);
+      console.log('Create conversation result:', result);
+
+      if (result.error) {
+        console.error('Error creating conversation:', result.error);
+        const errorMsg = result.error.message || 'Unknown error';
+        Alert.alert('Error', 'Failed to create conversation: ' + errorMsg);
+        return;
+      }
+
+      if (result.data) {
+        console.log('Conversation created/found:', result.data.id);
+        setShowNewChat(false);
+        setUserSearchQuery('');
+        setSearchResults([]);
+        // Navigate to the conversation
+        router.push(`/(tabs)/messages/${result.data.id}` as any);
+      }
+    } catch (error) {
+      console.error('Exception creating conversation:', error);
+      Alert.alert('Error', 'An error occurred. Please try again.');
+    } finally {
+      setStartingConversation(false);
+    }
+  };
 
   const getConversationName = (conv: Conversation) => {
     if (conv.type === 'group' && conv.name) {
@@ -262,6 +338,7 @@ export default function MessagesScreen() {
 
       {/* FAB - New Message */}
       <TouchableOpacity
+        onPress={() => setShowNewChat(true)}
         className="absolute bottom-6 right-6 w-14 h-14 bg-blue-500 rounded-full items-center justify-center"
         style={{
           shadowColor: '#3b82f6',
@@ -274,6 +351,117 @@ export default function MessagesScreen() {
       >
         <Edit size={22} color="#ffffff" strokeWidth={2.5} />
       </TouchableOpacity>
+
+      {/* New Chat Modal */}
+      <Modal
+        visible={showNewChat}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowNewChat(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          className="flex-1"
+        >
+          <View className="flex-1 bg-black/50 justify-end">
+            <View className={`rounded-t-3xl ${isDark ? 'bg-gray-900' : 'bg-white'}`} style={{ maxHeight: '80%' }}>
+              {/* Modal Header */}
+              <View className={`flex-row items-center justify-between px-5 py-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                <Text className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  New Message
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowNewChat(false);
+                    setUserSearchQuery('');
+                    setSearchResults([]);
+                  }}
+                  className="p-2"
+                >
+                  <X size={24} color={isDark ? '#9ca3af' : '#6b7280'} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Search Input */}
+              <View className="px-5 py-3">
+                <View
+                  className={`flex-row items-center px-4 py-3 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}
+                >
+                  <Search size={20} color={isDark ? '#9ca3af' : '#9ca3af'} />
+                  <TextInput
+                    className={`flex-1 ml-3 text-base ${isDark ? 'text-white' : 'text-gray-900'}`}
+                    placeholder="Search users by name..."
+                    placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
+                    value={userSearchQuery}
+                    onChangeText={setUserSearchQuery}
+                    autoFocus
+                  />
+                  {searchingUsers && (
+                    <ActivityIndicator size="small" color="#3b82f6" />
+                  )}
+                </View>
+              </View>
+
+              {/* Search Results */}
+              <ScrollView className="px-5" style={{ maxHeight: 400 }}>
+                {userSearchQuery.trim() === '' ? (
+                  <View className="items-center py-8">
+                    <UserPlus size={48} color={isDark ? '#6b7280' : '#9ca3af'} />
+                    <Text className={`mt-3 text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Search for a user to start a conversation
+                    </Text>
+                  </View>
+                ) : searchingUsers ? (
+                  <View className="items-center py-8">
+                    <ActivityIndicator size="large" color="#3b82f6" />
+                    <Text className={`mt-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Searching...
+                    </Text>
+                  </View>
+                ) : searchResults.length === 0 ? (
+                  <View className="items-center py-8">
+                    <User size={48} color={isDark ? '#6b7280' : '#9ca3af'} />
+                    <Text className={`mt-3 text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                      No users found matching "{userSearchQuery}"
+                    </Text>
+                  </View>
+                ) : (
+                  <View className="pb-6">
+                    {searchResults.map((searchUser) => (
+                      <TouchableOpacity
+                        key={searchUser.id}
+                        onPress={() => startConversation(searchUser)}
+                        disabled={startingConversation}
+                        className={`flex-row items-center p-4 rounded-xl mb-2 ${
+                          isDark ? 'bg-gray-800' : 'bg-gray-50'
+                        }`}
+                        activeOpacity={0.7}
+                      >
+                        <View className="w-12 h-12 rounded-full bg-blue-100 items-center justify-center">
+                          <User size={24} color="#3b82f6" />
+                        </View>
+                        <View className="flex-1 ml-3">
+                          <Text className={`text-base font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                            {searchUser.name}
+                          </Text>
+                          <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            {searchUser.major || 'Student'}{searchUser.year ? ` • ${searchUser.year}` : ''}
+                          </Text>
+                        </View>
+                        {startingConversation ? (
+                          <ActivityIndicator size="small" color="#3b82f6" />
+                        ) : (
+                          <MessageCircle size={20} color="#3b82f6" />
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
