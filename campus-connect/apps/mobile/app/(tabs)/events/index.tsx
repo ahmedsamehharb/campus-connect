@@ -7,23 +7,25 @@ import {
   RefreshControl,
   TextInput,
   ActivityIndicator,
+  Modal,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import {
   Calendar,
+  CalendarDays,
   MapPin,
   Users,
   Search,
-  Filter,
-  ChevronRight,
+  List,
   Plus,
-  Clock,
+  X,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/providers';
-import { api } from '@/lib/supabase';
+import { api, supabase } from '@/lib/supabase';
 
 interface Event {
   id: string;
@@ -36,7 +38,25 @@ interface Event {
   attendee_count: number;
   is_attending: boolean;
   max_attendees?: number;
+  organizer_id?: string;
 }
+
+interface NewEventForm {
+  title: string;
+  category: string;
+  location: string;
+  date: string;
+  max_attendees: string;
+  description: string;
+}
+
+const eventCategories = [
+  { id: 'social', label: 'Social' },
+  { id: 'academic', label: 'Academic' },
+  { id: 'sports', label: 'Sports' },
+  { id: 'career', label: 'Career' },
+  { id: 'workshop', label: 'Workshop' },
+];
 
 const categoryColors: Record<string, { bg: string; text: string }> = {
   Career: { bg: '#dcfce7', text: '#16a34a' },
@@ -63,6 +83,17 @@ export default function EventsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newEvent, setNewEvent] = useState<NewEventForm>({
+    title: '',
+    category: 'social',
+    location: '',
+    date: '',
+    max_attendees: '',
+    description: '',
+  });
 
   const fetchEvents = useCallback(async () => {
     try {
@@ -114,6 +145,93 @@ export default function EventsScreen() {
     event.category.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const handleCreateEvent = async () => {
+    if (!user?.id) {
+      Alert.alert('Sign In Required', 'Please sign in to create an event');
+      return;
+    }
+
+    if (!newEvent.title.trim() || !newEvent.location.trim()) {
+      Alert.alert('Error', 'Please fill in title and location');
+      return;
+    }
+
+    setCreating(true);
+
+    try {
+      const eventDate = newEvent.date || new Date().toISOString().split('T')[0];
+      
+      const { data, error } = await supabase
+        .from('events')
+        .insert({
+          title: newEvent.title.trim(),
+          description: newEvent.description.trim() || 'Join this event and meet fellow students!',
+          date: eventDate,
+          location: newEvent.location.trim(),
+          category: newEvent.category,
+          max_attendees: newEvent.max_attendees ? parseInt(newEvent.max_attendees) : null,
+          organizer_id: user.id,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating event:', error);
+        Alert.alert('Error', 'Failed to create event. Please try again.');
+        return;
+      }
+
+      setShowCreateModal(false);
+      setNewEvent({
+        title: '',
+        category: 'social',
+        location: '',
+        date: '',
+        max_attendees: '',
+        description: '',
+      });
+      fetchEvents();
+      Alert.alert('Success', 'Event created successfully!');
+    } catch (err) {
+      console.error('Error:', err);
+      Alert.alert('Error', 'Failed to create event');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleJoinEvent = async (eventId: string, isAttending: boolean) => {
+    if (!user?.id) {
+      Alert.alert('Sign In Required', 'Please sign in to join events');
+      return;
+    }
+
+    try {
+      if (isAttending) {
+        await api.leaveEvent(eventId, user.id);
+        setEvents((prev) =>
+          prev.map((e) =>
+            e.id === eventId
+              ? { ...e, is_attending: false, attendee_count: e.attendee_count - 1 }
+              : e
+          )
+        );
+      } else {
+        await api.joinEvent(eventId, user.id);
+        setEvents((prev) =>
+          prev.map((e) =>
+            e.id === eventId
+              ? { ...e, is_attending: true, attendee_count: e.attendee_count + 1 }
+              : e
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Error:', err);
+      Alert.alert('Error', 'Failed to update attendance');
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView className={`flex-1 items-center justify-center ${isDark ? 'bg-gray-900' : 'bg-[#f8fafc]'}`}>
@@ -125,32 +243,49 @@ export default function EventsScreen() {
 
   return (
     <SafeAreaView className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-[#f8fafc]'}`} edges={['bottom']}>
-      {/* Search Bar */}
+      {/* Header with Create Event and View Toggle */}
       <Animated.View
         entering={FadeInDown.duration(400).springify()}
         className="px-5 py-3"
       >
-        <View
-          className={`flex-row items-center px-4 py-3.5 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
-          style={{
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: isDark ? 0.3 : 0.06,
-            shadowRadius: 8,
-            elevation: 3,
-          }}
-        >
-          <Search size={20} color={isDark ? '#9ca3af' : '#9ca3af'} />
-          <TextInput
-            className={`flex-1 ml-3 text-base ${isDark ? 'text-white' : 'text-gray-900'}`}
-            placeholder="Search events..."
-            placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-          <TouchableOpacity className="p-1">
-            <Filter size={20} color={isDark ? '#9ca3af' : '#9ca3af'} />
+        <View className="flex-row items-center justify-between mb-3">
+          {/* Create Event Button */}
+          <TouchableOpacity
+            onPress={() => setShowCreateModal(true)}
+            className="flex-row items-center px-4 py-2.5 bg-[#14b8a6] rounded-lg"
+            activeOpacity={0.8}
+          >
+            <Plus size={18} color="#ffffff" strokeWidth={2.5} />
+            <Text className="text-white font-semibold ml-1.5">Create Event</Text>
           </TouchableOpacity>
+
+          {/* View Toggle */}
+          <View className="flex-row bg-gray-100 rounded-lg p-1">
+            <TouchableOpacity
+              onPress={() => setViewMode('list')}
+              className={`flex-row items-center px-3 py-1.5 rounded-md ${
+                viewMode === 'list' ? 'bg-[#14b8a6]' : ''
+              }`}
+              activeOpacity={0.7}
+            >
+              <List size={16} color={viewMode === 'list' ? '#ffffff' : '#6b7280'} />
+              <Text className={`ml-1.5 text-sm font-medium ${viewMode === 'list' ? 'text-white' : 'text-gray-600'}`}>
+                List
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setViewMode('calendar')}
+              className={`flex-row items-center px-3 py-1.5 rounded-md ${
+                viewMode === 'calendar' ? 'bg-[#14b8a6]' : ''
+              }`}
+              activeOpacity={0.7}
+            >
+              <CalendarDays size={16} color={viewMode === 'calendar' ? '#ffffff' : '#6b7280'} />
+              <Text className={`ml-1.5 text-sm font-medium ${viewMode === 'calendar' ? 'text-white' : 'text-gray-600'}`}>
+                Calendar
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Animated.View>
 
@@ -159,14 +294,14 @@ export default function EventsScreen() {
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3b82f6" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#14b8a6" />
         }
       >
         {error ? (
           <View className="items-center justify-center py-12">
             <Calendar size={48} color={isDark ? '#6b7280' : '#9ca3af'} />
             <Text className={`mt-4 text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{error}</Text>
-            <TouchableOpacity onPress={onRefresh} className="mt-4 bg-blue-500 px-6 py-2.5 rounded-xl">
+            <TouchableOpacity onPress={onRefresh} className="mt-4 bg-[#14b8a6] px-6 py-2.5 rounded-xl">
               <Text className="text-white font-semibold">Retry</Text>
             </TouchableOpacity>
           </View>
@@ -179,10 +314,6 @@ export default function EventsScreen() {
           </View>
         ) : (
           <View className="mt-2">
-            <Text className={`text-sm font-medium mb-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-              {filteredEvents.length} Upcoming Event{filteredEvents.length !== 1 ? 's' : ''}
-            </Text>
-            
             {filteredEvents.map((event, index) => {
               const colors = categoryColors[event.category] || defaultColors;
               const { month, day } = formatDate(event.date);
@@ -194,73 +325,95 @@ export default function EventsScreen() {
                 >
                   <TouchableOpacity
                     onPress={() => router.push(`/(tabs)/events/${event.id}` as any)}
-                    className={`mb-3 p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+                    className={`mb-4 rounded-2xl overflow-hidden ${isDark ? 'bg-gray-800' : 'bg-white'}`}
                     style={{
                       shadowColor: '#000',
                       shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: isDark ? 0.3 : 0.06,
-                      shadowRadius: 8,
-                      elevation: 3,
+                      shadowOpacity: isDark ? 0.3 : 0.08,
+                      shadowRadius: 10,
+                      elevation: 4,
                     }}
                     activeOpacity={0.8}
                   >
-                    <View className="flex-row">
-                      {/* Date Badge */}
-                      <View
-                        className="w-16 h-16 rounded-2xl items-center justify-center mr-4"
-                        style={{ backgroundColor: colors.bg }}
+                    {/* Event Header with Date and Icon */}
+                    <View className={`p-4 ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                      <View className="flex-row items-start">
+                        {/* Date Badge */}
+                        <View className="bg-white rounded-lg p-2 mr-4 items-center" style={{ minWidth: 50 }}>
+                          <Text className="text-xs font-semibold text-[#14b8a6]">{month}</Text>
+                          <Text className="text-2xl font-bold text-gray-900">{day}</Text>
+                        </View>
+                        
+                        {/* Calendar Icon */}
+                        <View className="flex-1 items-center justify-center py-2">
+                          <CalendarDays size={40} color="#14b8a6" strokeWidth={1.5} />
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Event Content */}
+                    <View className="p-4">
+                      <Text
+                        className={`text-lg font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}
+                        numberOfLines={1}
                       >
-                        <Text className="text-xs font-semibold" style={{ color: colors.text }}>
-                          {month}
-                        </Text>
-                        <Text className="text-2xl font-bold" style={{ color: colors.text }}>
-                          {day}
+                        {event.title}
+                      </Text>
+
+                      <View className="flex-row items-center">
+                        <MapPin size={14} color="#14b8a6" />
+                        <Text className="text-sm ml-1.5 text-[#14b8a6] font-medium">
+                          {event.location}
                         </Text>
                       </View>
 
-                      {/* Event Details */}
-                      <View className="flex-1">
-                        <Text
-                          className={`text-base font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}
-                          numberOfLines={1}
-                        >
-                          {event.title}
-                        </Text>
-
-                        <View className="flex-row items-center mt-2">
-                          <Clock size={14} color={isDark ? '#9ca3af' : '#9ca3af'} />
-                          <Text className={`text-sm ml-1.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                            {formatTime(event.date, event.time)}
-                          </Text>
-                        </View>
-
-                        <View className="flex-row items-center mt-1">
-                          <MapPin size={14} color={isDark ? '#9ca3af' : '#9ca3af'} />
-                          <Text
-                            className={`text-sm ml-1.5 flex-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}
-                            numberOfLines={1}
+                      {/* Attendee Avatars */}
+                      <View className="flex-row items-center mt-3">
+                        {Array.from({ length: Math.min(event.attendee_count, 3) }).map((_, i) => (
+                          <View
+                            key={i}
+                            className="w-8 h-8 rounded-full bg-[#1E3A5F] items-center justify-center border-2 border-white"
+                            style={{ marginLeft: i > 0 ? -10 : 0 }}
                           >
-                            {event.location}
-                          </Text>
-                        </View>
-
-                        <View className="flex-row items-center justify-between mt-3">
-                          <View className="flex-row items-center">
-                            <Users size={14} color={isDark ? '#9ca3af' : '#9ca3af'} />
-                            <Text className={`text-sm ml-1.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                              {event.attendee_count} attending
+                            <Text className="text-white text-xs font-semibold">
+                              {String.fromCharCode(65 + i)}
                             </Text>
                           </View>
-                          
-                          {event.is_attending && (
-                            <View className="bg-green-100 px-2.5 py-1 rounded-full">
-                              <Text className="text-green-600 text-xs font-semibold">Going</Text>
-                            </View>
-                          )}
-                        </View>
+                        ))}
+                        {event.attendee_count > 3 && (
+                          <Text className={`ml-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            +{event.attendee_count - 3}
+                          </Text>
+                        )}
                       </View>
 
-                      <ChevronRight size={20} color={isDark ? '#6b7280' : '#d1d5db'} />
+                      {/* Action Buttons */}
+                      <View className="flex-row items-center mt-4">
+                        <TouchableOpacity
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            handleJoinEvent(event.id, event.is_attending);
+                          }}
+                          className={`flex-1 py-3 rounded-xl items-center ${
+                            event.is_attending ? 'bg-green-500' : 'bg-[#f97316]'
+                          }`}
+                          activeOpacity={0.8}
+                        >
+                          <Text className="text-white font-semibold">
+                            {event.is_attending ? 'Joined ✓' : 'Join Event'}
+                          </Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                          onPress={() => router.push(`/(tabs)/events/${event.id}` as any)}
+                          className={`ml-2 w-12 h-12 rounded-xl items-center justify-center ${
+                            isDark ? 'bg-gray-700' : 'bg-gray-100'
+                          }`}
+                          activeOpacity={0.7}
+                        >
+                          <Users size={20} color={isDark ? '#9ca3af' : '#6b7280'} />
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   </TouchableOpacity>
                 </Animated.View>
@@ -270,20 +423,137 @@ export default function EventsScreen() {
         )}
       </ScrollView>
 
-      {/* FAB - Create Event */}
-      <TouchableOpacity
-        className="absolute bottom-6 right-6 w-14 h-14 bg-blue-500 rounded-full items-center justify-center"
-        style={{
-          shadowColor: '#3b82f6',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.4,
-          shadowRadius: 8,
-          elevation: 6,
-        }}
-        activeOpacity={0.8}
+      {/* Create Event Modal */}
+      <Modal
+        visible={showCreateModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowCreateModal(false)}
       >
-        <Plus size={26} color="#ffffff" strokeWidth={2.5} />
-      </TouchableOpacity>
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className={`rounded-t-3xl ${isDark ? 'bg-gray-900' : 'bg-white'}`} style={{ maxHeight: '90%' }}>
+            {/* Modal Header */}
+            <View className={`flex-row items-center justify-between px-5 py-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <Text className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                Create Event
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowCreateModal(false)}
+                className="p-2"
+              >
+                <X size={24} color={isDark ? '#9ca3af' : '#6b7280'} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView className="px-5 py-4">
+              {/* Event Title */}
+              <View className="mb-4">
+                <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Event Title *
+                </Text>
+                <TextInput
+                  className={`px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
+                  placeholder="e.g. Sunday Cooking Club"
+                  placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
+                  value={newEvent.title}
+                  onChangeText={(text) => setNewEvent({ ...newEvent, title: text })}
+                />
+              </View>
+
+              {/* Category */}
+              <View className="mb-4">
+                <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Category *
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View className="flex-row gap-2">
+                    {eventCategories.map((cat) => (
+                      <TouchableOpacity
+                        key={cat.id}
+                        onPress={() => setNewEvent({ ...newEvent, category: cat.id })}
+                        className={`px-4 py-2 rounded-full ${
+                          newEvent.category === cat.id
+                            ? 'bg-[#14b8a6]'
+                            : isDark
+                            ? 'bg-gray-800 border border-gray-700'
+                            : 'bg-gray-100'
+                        }`}
+                      >
+                        <Text className={newEvent.category === cat.id ? 'text-white font-medium' : isDark ? 'text-gray-300' : 'text-gray-700'}>
+                          {cat.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
+
+              {/* Location */}
+              <View className="mb-4">
+                <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Location *
+                </Text>
+                <TextInput
+                  className={`px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
+                  placeholder="e.g. Dorm Common Room"
+                  placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
+                  value={newEvent.location}
+                  onChangeText={(text) => setNewEvent({ ...newEvent, location: text })}
+                />
+              </View>
+
+              {/* Max Attendees */}
+              <View className="mb-4">
+                <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Max Attendees (optional)
+                </Text>
+                <TextInput
+                  className={`px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
+                  placeholder="Leave empty for unlimited"
+                  placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
+                  keyboardType="numeric"
+                  value={newEvent.max_attendees}
+                  onChangeText={(text) => setNewEvent({ ...newEvent, max_attendees: text })}
+                />
+              </View>
+
+              {/* Description */}
+              <View className="mb-6">
+                <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Description (optional)
+                </Text>
+                <TextInput
+                  className={`px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
+                  placeholder="Tell people what the event is about..."
+                  placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                  style={{ minHeight: 100 }}
+                  value={newEvent.description}
+                  onChangeText={(text) => setNewEvent({ ...newEvent, description: text })}
+                />
+              </View>
+
+              {/* Create Button */}
+              <TouchableOpacity
+                onPress={handleCreateEvent}
+                disabled={creating}
+                className={`py-4 rounded-xl items-center mb-6 ${creating ? 'bg-gray-400' : 'bg-[#14b8a6]'}`}
+                activeOpacity={0.8}
+              >
+                {creating ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <Text className="text-white font-bold text-base">
+                    {user ? 'Create Event' : 'Sign in to create'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

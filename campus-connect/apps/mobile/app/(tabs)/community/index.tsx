@@ -43,20 +43,34 @@ interface Post {
   };
 }
 
-const categoryColors: Record<string, { bg: string; text: string }> = {
-  Academic: { bg: '#dbeafe', text: '#2563eb' },
-  'Campus Life': { bg: '#f3e8ff', text: '#9333ea' },
-  Events: { bg: '#ffedd5', text: '#ea580c' },
-  Help: { bg: '#dcfce7', text: '#16a34a' },
-  General: { bg: '#f1f5f9', text: '#475569' },
-  academic: { bg: '#dbeafe', text: '#2563eb' },
-  campus_life: { bg: '#f3e8ff', text: '#9333ea' },
-  events: { bg: '#ffedd5', text: '#ea580c' },
-  help: { bg: '#dcfce7', text: '#16a34a' },
-  general: { bg: '#f1f5f9', text: '#475569' },
+const categoryColors: Record<string, { bg: string; text: string; border: string }> = {
+  Question: { bg: '#dbeafe', text: '#2563eb', border: '#93c5fd' },
+  question: { bg: '#dbeafe', text: '#2563eb', border: '#93c5fd' },
+  Help: { bg: '#dcfce7', text: '#16a34a', border: '#86efac' },
+  help: { bg: '#dcfce7', text: '#16a34a', border: '#86efac' },
+  Discussion: { bg: '#fce7f3', text: '#db2777', border: '#f9a8d4' },
+  discussion: { bg: '#fce7f3', text: '#db2777', border: '#f9a8d4' },
+  Announcement: { bg: '#ffedd5', text: '#ea580c', border: '#fdba74' },
+  announcement: { bg: '#ffedd5', text: '#ea580c', border: '#fdba74' },
+  Academic: { bg: '#dbeafe', text: '#2563eb', border: '#93c5fd' },
+  academic: { bg: '#dbeafe', text: '#2563eb', border: '#93c5fd' },
+  'Campus Life': { bg: '#f3e8ff', text: '#9333ea', border: '#d8b4fe' },
+  campus_life: { bg: '#f3e8ff', text: '#9333ea', border: '#d8b4fe' },
+  Events: { bg: '#ffedd5', text: '#ea580c', border: '#fdba74' },
+  events: { bg: '#ffedd5', text: '#ea580c', border: '#fdba74' },
+  General: { bg: '#f1f5f9', text: '#475569', border: '#cbd5e1' },
+  general: { bg: '#f1f5f9', text: '#475569', border: '#cbd5e1' },
 };
 
-const defaultColors = { bg: '#f1f5f9', text: '#475569' };
+const defaultColors = { bg: '#f1f5f9', text: '#475569', border: '#cbd5e1' };
+
+const categories = [
+  { id: 'all', label: 'All' },
+  { id: 'question', label: 'Question' },
+  { id: 'help', label: 'Help' },
+  { id: 'discussion', label: 'Discussion' },
+  { id: 'announcement', label: 'Announcement' },
+];
 
 export default function CommunityScreen() {
   const { user } = useAuth();
@@ -69,6 +83,7 @@ export default function CommunityScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState('all');
 
   const fetchPosts = useCallback(async () => {
     try {
@@ -182,11 +197,14 @@ export default function CommunityScreen() {
     return date.toLocaleDateString();
   };
 
-  const filteredPosts = posts.filter((post) =>
-    post.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    post.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    post.category.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredPosts = posts.filter((post) => {
+    const matchesSearch = post.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      post.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      post.category.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = selectedCategory === 'all' || 
+      post.category.toLowerCase() === selectedCategory.toLowerCase();
+    return matchesSearch && matchesCategory;
+  });
 
   if (loading) {
     return (
@@ -217,12 +235,54 @@ export default function CommunityScreen() {
           <Search size={20} color={isDark ? '#9ca3af' : '#9ca3af'} />
           <TextInput
             className={`flex-1 ml-3 text-base ${isDark ? 'text-white' : 'text-gray-900'}`}
-            placeholder="Search discussions..."
+            placeholder="Search requests..."
             placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
         </View>
+      </Animated.View>
+
+      {/* Category Filters */}
+      <Animated.View
+        entering={FadeInDown.duration(400).delay(100).springify()}
+        className="px-5 pb-3"
+      >
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: 8 }}
+        >
+          {categories.map((category) => {
+            const isSelected = selectedCategory === category.id;
+            return (
+              <TouchableOpacity
+                key={category.id}
+                onPress={() => setSelectedCategory(category.id)}
+                className={`px-4 py-2 rounded-full ${
+                  isSelected
+                    ? 'bg-[#1E3A5F]'
+                    : isDark
+                    ? 'bg-gray-800 border border-gray-700'
+                    : 'bg-white border border-gray-200'
+                }`}
+                activeOpacity={0.7}
+              >
+                <Text
+                  className={`text-sm font-medium ${
+                    isSelected
+                      ? 'text-white'
+                      : isDark
+                      ? 'text-gray-300'
+                      : 'text-gray-700'
+                  }`}
+                >
+                  {category.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </Animated.View>
 
       <ScrollView
@@ -310,57 +370,42 @@ export default function CommunityScreen() {
                     </Text>
 
                     {/* Actions */}
-                    <View className={`flex-row items-center mt-4 pt-3 border-t ${isDark ? 'border-gray-700' : 'border-gray-100'}`}>
-                      <TouchableOpacity
-                        className="flex-row items-center mr-6"
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          handleLike(post.id, post.is_liked);
-                        }}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <Heart
-                          size={18}
-                          color={post.is_liked ? '#ef4444' : isDark ? '#9ca3af' : '#9ca3af'}
-                          fill={post.is_liked ? '#ef4444' : 'none'}
-                        />
-                        <Text className={`text-sm font-medium ml-1.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                          {post.likes}
-                        </Text>
-                      </TouchableOpacity>
-                      <View className="flex-row items-center mr-6">
-                        <MessageSquare size={18} color={isDark ? '#9ca3af' : '#9ca3af'} />
-                        <Text className={`text-sm font-medium ml-1.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                          {post.reply_count} replies
-                        </Text>
-                      </View>
-                      {/* Reply Button - Start Chat with Author */}
-                      <TouchableOpacity
-                        className={`flex-row items-center px-3 py-1.5 rounded-lg ${
-                          replyingToId === post.id
-                            ? 'bg-gray-200'
-                            : isDark
-                            ? 'bg-gray-700'
-                            : 'bg-gray-100'
-                        }`}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          handleReply(post);
-                        }}
-                        disabled={replyingToId === post.id}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        {replyingToId === post.id ? (
-                          <ActivityIndicator size="small" color="#3b82f6" />
-                        ) : (
-                          <>
-                            <MessageCircle size={16} color="#3b82f6" />
-                            <Text className="text-sm font-semibold ml-1.5 text-blue-500">
-                              Reply
-                            </Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
+                    <View className={`flex-row items-center justify-center mt-4 pt-3 border-t ${isDark ? 'border-gray-700' : 'border-gray-100'}`}>
+                      {/* Check if this is the user's own post */}
+                      {post.author?.id === user?.id ? (
+                        <View className={`flex-1 items-center py-2 rounded-xl ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                          <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            Your post
+                          </Text>
+                        </View>
+                      ) : (
+                        <TouchableOpacity
+                          className={`flex-1 flex-row items-center justify-center py-2.5 rounded-xl border ${
+                            replyingToId === post.id
+                              ? 'bg-gray-100 border-gray-300'
+                              : isDark
+                              ? 'bg-gray-800 border-gray-700'
+                              : 'bg-white border-gray-200'
+                          }`}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            handleReply(post);
+                          }}
+                          disabled={replyingToId === post.id}
+                          activeOpacity={0.7}
+                        >
+                          {replyingToId === post.id ? (
+                            <ActivityIndicator size="small" color="#3b82f6" />
+                          ) : (
+                            <>
+                              <MessageCircle size={18} color={isDark ? '#9ca3af' : '#6b7280'} />
+                              <Text className={`text-sm font-medium ml-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                Reply
+                              </Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
+                      )}
                     </View>
                   </TouchableOpacity>
                 </Animated.View>
