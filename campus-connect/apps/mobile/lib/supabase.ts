@@ -25,14 +25,46 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 // =============================================
 export const auth = {
   signUp: async (email: string, password: string, name: string) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { name },
-      },
-    });
-    return { data, error };
+    try {
+      // Create the auth user
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { name },
+        },
+      });
+
+      if (error) {
+        return { data: null, error };
+      }
+
+      // If signup successful and we have a user, create their profile
+      if (data?.user) {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .upsert({
+            id: data.user.id,
+            name: name,
+            email: email,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: 'id',
+          });
+
+        if (profileError) {
+          console.warn('Profile creation warning:', profileError.message);
+          // Don't return error here - the auth user was created successfully
+          // The profile might fail due to RLS policies, but user can still sign in
+        }
+      }
+
+      return { data, error: null };
+    } catch (err: any) {
+      console.error('SignUp exception:', err);
+      return { data: null, error: { message: err.message || 'Signup failed' } };
+    }
   },
 
   signIn: async (email: string, password: string) => {

@@ -8,6 +8,9 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -19,6 +22,7 @@ import {
   Heart,
   User,
   Users,
+  X,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -72,6 +76,19 @@ const categories = [
   { id: 'announcement', label: 'Announcement' },
 ];
 
+const postCategories = [
+  { id: 'question', label: 'Question' },
+  { id: 'help', label: 'Help' },
+  { id: 'discussion', label: 'Discussion' },
+  { id: 'announcement', label: 'Announcement' },
+];
+
+interface NewPostForm {
+  title: string;
+  content: string;
+  category: string;
+}
+
 export default function CommunityScreen() {
   const { user } = useAuth();
   const colorScheme = useColorScheme();
@@ -84,6 +101,15 @@ export default function CommunityScreen() {
   const [error, setError] = useState<string | null>(null);
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('all');
+  
+  // Create Post Modal state
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newPost, setNewPost] = useState<NewPostForm>({
+    title: '',
+    content: '',
+    category: 'question',
+  });
 
   const fetchPosts = useCallback(async () => {
     try {
@@ -205,6 +231,56 @@ export default function CommunityScreen() {
       post.category.toLowerCase() === selectedCategory.toLowerCase();
     return matchesSearch && matchesCategory;
   });
+
+  const handleCreatePost = async () => {
+    if (!user?.id) {
+      Alert.alert('Sign In Required', 'Please sign in to create a post');
+      return;
+    }
+
+    if (!newPost.title.trim()) {
+      Alert.alert('Error', 'Please enter a title for your post');
+      return;
+    }
+
+    if (!newPost.content.trim()) {
+      Alert.alert('Error', 'Please enter content for your post');
+      return;
+    }
+
+    setCreating(true);
+
+    try {
+      const { data, error } = await api.createPost(user.id, {
+        title: newPost.title.trim(),
+        content: newPost.content.trim(),
+        category: newPost.category,
+      });
+
+      if (error) {
+        console.error('Error creating post:', error);
+        Alert.alert('Error', 'Failed to create post. Please try again.');
+        return;
+      }
+
+      // Reset form and close modal
+      setShowCreateModal(false);
+      setNewPost({
+        title: '',
+        content: '',
+        category: 'question',
+      });
+
+      // Refresh posts
+      fetchPosts();
+      Alert.alert('Success', 'Your post has been created!');
+    } catch (err) {
+      console.error('Error:', err);
+      Alert.alert('Error', 'Failed to create post');
+    } finally {
+      setCreating(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -417,10 +493,10 @@ export default function CommunityScreen() {
 
       {/* FAB - Create Post */}
       <TouchableOpacity
-        onPress={() => Alert.alert('Create Post', 'Post creation coming soon!')}
-        className="absolute bottom-6 right-6 w-14 h-14 bg-blue-500 rounded-full items-center justify-center"
+        onPress={() => setShowCreateModal(true)}
+        className="absolute bottom-6 right-6 w-14 h-14 bg-[#14b8a6] rounded-full items-center justify-center"
         style={{
-          shadowColor: '#3b82f6',
+          shadowColor: '#14b8a6',
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.4,
           shadowRadius: 8,
@@ -430,6 +506,124 @@ export default function CommunityScreen() {
       >
         <Plus size={26} color="#ffffff" strokeWidth={2.5} />
       </TouchableOpacity>
+
+      {/* Create Post Modal */}
+      <Modal
+        visible={showCreateModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowCreateModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          className="flex-1"
+        >
+          <View className="flex-1 bg-black/50 justify-end">
+            <View className={`rounded-t-3xl ${isDark ? 'bg-gray-900' : 'bg-white'}`} style={{ maxHeight: '90%' }}>
+              {/* Modal Header */}
+              <View className={`flex-row items-center justify-between px-5 py-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                <Text className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Create Post
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setShowCreateModal(false)}
+                  className="p-2"
+                >
+                  <X size={24} color={isDark ? '#9ca3af' : '#6b7280'} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView className="px-5 py-4" keyboardShouldPersistTaps="handled">
+                {/* Post Title */}
+                <View className="mb-4">
+                  <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                    Title *
+                  </Text>
+                  <TextInput
+                    className={`px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
+                    placeholder="What's your question or topic?"
+                    placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
+                    value={newPost.title}
+                    onChangeText={(text) => setNewPost({ ...newPost, title: text })}
+                    maxLength={100}
+                  />
+                </View>
+
+                {/* Category */}
+                <View className="mb-4">
+                  <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                    Category *
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View className="flex-row gap-2">
+                      {postCategories.map((cat) => {
+                        const colors = categoryColors[cat.id] || defaultColors;
+                        const isSelected = newPost.category === cat.id;
+                        return (
+                          <TouchableOpacity
+                            key={cat.id}
+                            onPress={() => setNewPost({ ...newPost, category: cat.id })}
+                            className={`px-4 py-2 rounded-full border`}
+                            style={{
+                              backgroundColor: isSelected ? colors.bg : isDark ? '#1f2937' : '#f9fafb',
+                              borderColor: isSelected ? colors.text : isDark ? '#374151' : '#e5e7eb',
+                            }}
+                          >
+                            <Text
+                              style={{ color: isSelected ? colors.text : isDark ? '#d1d5db' : '#4b5563' }}
+                              className="font-medium"
+                            >
+                              {cat.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
+                </View>
+
+                {/* Content */}
+                <View className="mb-6">
+                  <Text className={`text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                    Content *
+                  </Text>
+                  <TextInput
+                    className={`px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
+                    placeholder="Share more details about your post..."
+                    placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
+                    multiline
+                    numberOfLines={6}
+                    textAlignVertical="top"
+                    style={{ minHeight: 120 }}
+                    value={newPost.content}
+                    onChangeText={(text) => setNewPost({ ...newPost, content: text })}
+                  />
+                </View>
+
+                {/* Create Button */}
+                <TouchableOpacity
+                  onPress={handleCreatePost}
+                  disabled={creating || !newPost.title.trim() || !newPost.content.trim()}
+                  className={`py-4 rounded-xl items-center mb-6 ${
+                    creating || !newPost.title.trim() || !newPost.content.trim()
+                      ? 'bg-gray-400'
+                      : 'bg-[#14b8a6]'
+                  }`}
+                  activeOpacity={0.8}
+                >
+                  {creating ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text className="text-white font-bold text-base">
+                      {user ? 'Create Post' : 'Sign in to post'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }

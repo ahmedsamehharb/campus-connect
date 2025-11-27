@@ -129,13 +129,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = async (email: string, password: string, name: string) => {
     try {
-      console.log('Signing up...');
+      console.log('Signing up with email:', email);
       const { data, error } = await auth.signUp(email, password, name);
-      console.log('SignUp result:', error ? error.message : 'success');
-      return { error };
+      
+      if (error) {
+        console.log('SignUp error:', error.message);
+        return { error };
+      }
+
+      console.log('SignUp successful, user created:', data?.user?.id);
+
+      // If we have a user and session (email verification disabled), set it up
+      if (data?.user && data?.session) {
+        setUser(data.user);
+        setSession(data.session);
+        await fetchProfile(data.user.id);
+      }
+
+      return { error: null };
     } catch (error: any) {
-      console.error('SignUp error:', error);
-      return { error: { message: 'Network error. Please try again.' } };
+      console.error('SignUp exception:', error);
+      return { error: { message: error.message || 'Network error. Please try again.' } };
     }
   };
 

@@ -25,33 +25,60 @@ export default function SignUpScreen() {
   const { signUp } = useAuth();
 
   const handleSignUp = async () => {
-    if (!name || !email || !password || !confirmPassword) {
+    // Trim inputs
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedPassword = password;
+
+    if (!trimmedName || !trimmedEmail || !trimmedPassword || !confirmPassword) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
 
-    if (password !== confirmPassword) {
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
+    if (trimmedPassword !== confirmPassword) {
       Alert.alert('Error', 'Passwords do not match');
       return;
     }
 
-    if (password.length < 6) {
+    if (trimmedPassword.length < 6) {
       Alert.alert('Error', 'Password must be at least 6 characters');
       return;
     }
 
     setIsLoading(true);
-    const { error } = await signUp(email, password, name);
-    setIsLoading(false);
-
-    if (error) {
-      Alert.alert('Sign Up Failed', error.message);
-    } else {
-      Alert.alert(
-        'Account Created',
-        'Please check your email to verify your account before signing in.',
-        [{ text: 'OK', onPress: () => router.replace('/(auth)/login') }]
-      );
+    
+    try {
+      const { error } = await signUp(trimmedEmail, trimmedPassword, trimmedName);
+      
+      if (error) {
+        // Handle specific error messages
+        let errorMessage = error.message;
+        if (error.message?.includes('already registered')) {
+          errorMessage = 'An account with this email already exists. Please sign in instead.';
+        } else if (error.message?.includes('invalid')) {
+          errorMessage = 'Please check your email address and try again.';
+        }
+        Alert.alert('Sign Up Failed', errorMessage);
+      } else {
+        // Success - check if email verification is required
+        Alert.alert(
+          'Account Created! 🎉',
+          'Your account has been created successfully. You can now sign in with your email and password.',
+          [{ text: 'Sign In', onPress: () => router.replace('/(auth)/login') }]
+        );
+      }
+    } catch (err: any) {
+      console.error('Signup error:', err);
+      Alert.alert('Error', 'Something went wrong. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
