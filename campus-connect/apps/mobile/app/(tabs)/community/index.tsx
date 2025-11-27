@@ -15,6 +15,7 @@ import {
   Search,
   Plus,
   MessageSquare,
+  MessageCircle,
   Heart,
   User,
   Users,
@@ -67,6 +68,7 @@ export default function CommunityScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [replyingToId, setReplyingToId] = useState<string | null>(null);
 
   const fetchPosts = useCallback(async () => {
     try {
@@ -119,6 +121,49 @@ export default function CommunityScreen() {
       }
     } catch (err) {
       console.error('Error toggling like:', err);
+    }
+  };
+
+  // Handle reply - start a conversation with the post author
+  const handleReply = async (post: Post) => {
+    if (!user?.id) {
+      Alert.alert('Sign In Required', 'Please sign in to reply');
+      return;
+    }
+
+    if (!post.author?.id) {
+      Alert.alert('Error', 'Cannot find post author');
+      return;
+    }
+
+    // Don't allow replying to your own post
+    if (post.author.id === user.id) {
+      Alert.alert('Info', 'You cannot reply to your own post');
+      return;
+    }
+
+    setReplyingToId(post.id);
+
+    try {
+      // Create or get existing conversation with the post author
+      const result = await api.createDirectConversation(user.id, post.author.id);
+
+      if (result.error) {
+        console.error('Error creating conversation:', result.error);
+        Alert.alert('Error', 'Failed to start conversation. Please try again.');
+        setReplyingToId(null);
+        return;
+      }
+
+      if (result.data) {
+        // Navigate to the conversation
+        router.push(`/(tabs)/messages/${result.data.id}` as any);
+      }
+    } catch (error) {
+      console.error('Error starting conversation:', error);
+      Alert.alert('Error', 'Failed to start conversation. Please try again.');
+    } finally {
+      setReplyingToId(null);
     }
   };
 
@@ -283,12 +328,39 @@ export default function CommunityScreen() {
                           {post.likes}
                         </Text>
                       </TouchableOpacity>
-                      <View className="flex-row items-center">
+                      <View className="flex-row items-center mr-6">
                         <MessageSquare size={18} color={isDark ? '#9ca3af' : '#9ca3af'} />
                         <Text className={`text-sm font-medium ml-1.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                           {post.reply_count} replies
                         </Text>
                       </View>
+                      {/* Reply Button - Start Chat with Author */}
+                      <TouchableOpacity
+                        className={`flex-row items-center px-3 py-1.5 rounded-lg ${
+                          replyingToId === post.id
+                            ? 'bg-gray-200'
+                            : isDark
+                            ? 'bg-gray-700'
+                            : 'bg-gray-100'
+                        }`}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleReply(post);
+                        }}
+                        disabled={replyingToId === post.id}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        {replyingToId === post.id ? (
+                          <ActivityIndicator size="small" color="#3b82f6" />
+                        ) : (
+                          <>
+                            <MessageCircle size={16} color="#3b82f6" />
+                            <Text className="text-sm font-semibold ml-1.5 text-blue-500">
+                              Reply
+                            </Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
                     </View>
                   </TouchableOpacity>
                 </Animated.View>

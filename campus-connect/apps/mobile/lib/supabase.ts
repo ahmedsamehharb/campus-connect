@@ -549,6 +549,136 @@ export const api = {
   unsubscribeFromMessages: (conversationId: string) => {
     supabase.removeChannel(supabase.channel(`messages:${conversationId}`));
   },
+
+  // Create a new direct conversation
+  createDirectConversation: async (userId: string, otherUserId: string) => {
+    try {
+      console.log('Creating direct conversation between', userId, 'and', otherUserId);
+
+      // Check if conversation already exists
+      const { data: existingConvs, error: existingError } = await supabase
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('user_id', userId);
+
+      if (existingError) {
+        console.error('Error checking existing conversations:', existingError);
+      }
+
+      if (existingConvs && existingConvs.length > 0) {
+        for (const conv of existingConvs) {
+          const { data: otherParticipant } = await supabase
+            .from('conversation_participants')
+            .select('user_id')
+            .eq('conversation_id', conv.conversation_id)
+            .eq('user_id', otherUserId)
+            .maybeSingle();
+
+          if (otherParticipant) {
+            // Check if it's a direct conversation
+            const { data: convData } = await supabase
+              .from('conversations')
+              .select('*')
+              .eq('id', conv.conversation_id)
+              .eq('type', 'direct')
+              .maybeSingle();
+
+            if (convData) {
+              console.log('Found existing conversation:', convData.id);
+              return { data: convData, error: null, existing: true };
+            }
+          }
+        }
+      }
+
+      console.log('Creating new conversation...');
+
+      // Create new conversation
+      const { data: newConv, error: convError } = await supabase
+        .from('conversations')
+        .insert({ type: 'direct' })
+        .select()
+        .single();
+
+      if (convError) {
+        console.error('Error creating conversation:', convError);
+        return { data: null, error: convError, existing: false };
+      }
+
+      if (!newConv) {
+        console.error('No conversation data returned');
+        return { data: null, error: { message: 'Failed to create conversation' }, existing: false };
+      }
+
+      console.log('Conversation created:', newConv.id, 'Adding participants...');
+
+      // Add participants
+      const { error: partError } = await supabase
+        .from('conversation_participants')
+        .insert([
+          { conversation_id: newConv.id, user_id: userId },
+          { conversation_id: newConv.id, user_id: otherUserId },
+        ]);
+
+      if (partError) {
+        console.error('Error adding participants:', partError);
+        return { data: null, error: partError, existing: false };
+      }
+
+      console.log('Participants added successfully');
+      return { data: newConv, error: null, existing: false };
+    } catch (error: any) {
+      console.error('Exception in createDirectConversation:', error);
+      return { data: null, error: { message: error.message || 'Unknown error' }, existing: false };
+    }
+  },
+
+  // Create a group conversation
+  createGroupConversation: async (userId: string, name: string, memberIds: string[]) => {
+    const { data: newConv, error: convError } = await supabase
+      .from('conversations')
+      .insert({ type: 'group', name })
+      .select()
+      .single();
+
+    if (convError || !newConv) return { data: null, error: convError };
+
+    // Add all participants including creator
+    const participants = [userId, ...memberIds].map((id) => ({
+      conversation_id: newConv.id,
+      user_id: id,
+    }));
+
+    const { error: partError } = await supabase.from('conversation_participants').insert(participants);
+
+    if (partError) return { data: null, error: partError };
+
+    return { data: newConv, error: null };
+  },
+
+  // Add participants to an existing conversation
+  addParticipantsToConversation: async (conversationId: string, userIds: string[]) => {
+    const participants = userIds.map((id) => ({
+      conversation_id: conversationId,
+      user_id: id,
+    }));
+
+    const { error } = await supabase.from('conversation_participants').insert(participants);
+
+    return { error };
+  },
+
+  // Search users for messaging
+  searchUsers: async (query: string, currentUserId: string) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, name, avatar_url, major, year')
+      .neq('id', currentUserId)
+      .ilike('name', `%${query}%`)
+      .limit(10);
+
+    return { data, error };
+  },
 };
 
 
