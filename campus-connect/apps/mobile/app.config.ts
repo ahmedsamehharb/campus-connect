@@ -1,4 +1,26 @@
 import { ExpoConfig, ConfigContext } from 'expo/config';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Load environment variables from root .env.local
+try {
+  const rootEnvPath = path.resolve(__dirname, '../../.env.local');
+  if (fs.existsSync(rootEnvPath)) {
+    const envConfig = fs.readFileSync(rootEnvPath, 'utf8');
+    envConfig.split('\n').forEach((line) => {
+      const match = line.match(/^([^=]+)=(.*)$/);
+      if (match) {
+        const key = match[1].trim();
+        const value = match[2].trim().replace(/^["'](.*)["']$/, '$1');
+        if (!process.env[key]) {
+          process.env[key] = value;
+        }
+      }
+    });
+  }
+} catch (error) {
+  console.warn('Error loading root .env.local:', error);
+}
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
@@ -10,14 +32,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: 'campusconnect',
   userInterfaceStyle: 'automatic',
   newArchEnabled: true,
-  
+
   // Splash screen configuration
   splash: {
     image: './assets/images/splash.png',
     resizeMode: 'contain',
     backgroundColor: '#3B82F6',
   },
-  
+
   // iOS configuration
   ios: {
     supportsTablet: true,
@@ -35,7 +57,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       usesNonExemptEncryption: false,
     },
   },
-  
+
   // Android configuration
   android: {
     adaptiveIcon: {
@@ -72,14 +94,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
   },
-  
+
   // Web configuration
   web: {
     bundler: 'metro',
     output: 'static',
     favicon: './assets/images/favicon.png',
   },
-  
+
   // Plugins
   plugins: [
     'expo-router',
@@ -100,30 +122,30 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
   ],
-  
+
   // Experiments
   experiments: {
     typedRoutes: true,
   },
-  
+
   // Extra configuration
   extra: {
     eas: {
       projectId: process.env.EXPO_PUBLIC_PROJECT_ID,
     },
-    supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
-    supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+    supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
+    supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   },
-  
+
   // Owner (for EAS)
   owner: 'campusconnect',
-  
+
   // Updates configuration (for OTA updates)
   updates: {
     fallbackToCacheTimeout: 0,
     url: 'https://u.expo.dev/your-project-id',
   },
-  
+
   // Runtime version for updates
   runtimeVersion: {
     policy: 'sdkVersion',
