@@ -41,6 +41,12 @@ interface Event {
   organizer_id?: string;
 }
 
+interface Attendee {
+  id: string;
+  name: string;
+  avatar_url?: string;
+}
+
 interface NewEventForm {
   title: string;
   category: string;
@@ -79,6 +85,7 @@ export default function EventsScreen() {
   const isDark = colorScheme === 'dark';
   
   const [events, setEvents] = useState<Event[]>([]);
+  const [eventAttendees, setEventAttendees] = useState<Record<string, Attendee[]>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -120,6 +127,43 @@ export default function EventsScreen() {
     fetchEvents();
   }, [fetchEvents]);
 
+  // Fetch attendees for all events
+  useEffect(() => {
+    const fetchAllAttendees = async () => {
+      if (events.length === 0) return;
+
+      const attendeesMap: Record<string, Attendee[]> = {};
+
+      // Fetch attendees for each event (limit to first 3 for preview)
+      await Promise.all(
+        events.map(async (event) => {
+          try {
+            const { data, error } = await api.getEventAttendees(event.id);
+            if (!error && data) {
+              const attendees = data
+                .slice(0, 3) // Only get first 3 for preview
+                .map((a: any) => {
+                  const profile = Array.isArray(a.profile) ? a.profile[0] : a.profile;
+                  return {
+                    id: profile?.id || a.user_id,
+                    name: profile?.name || 'Anonymous',
+                    avatar_url: profile?.avatar_url,
+                  };
+                });
+              attendeesMap[event.id] = attendees;
+            }
+          } catch (err) {
+            console.error(`Error fetching attendees for event ${event.id}:`, err);
+          }
+        })
+      );
+
+      setEventAttendees(attendeesMap);
+    };
+
+    fetchAllAttendees();
+  }, [events]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchEvents();
@@ -137,6 +181,12 @@ export default function EventsScreen() {
     if (timeStr) return timeStr;
     const date = new Date(dateStr);
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  };
+
+  // Get initials from name
+  const getInitials = (name: string) => {
+    if (!name) return '?';
+    return name.charAt(0).toUpperCase();
   };
 
   const filteredEvents = events.filter((event) =>
@@ -190,7 +240,7 @@ export default function EventsScreen() {
         max_attendees: '',
         description: '',
       });
-      fetchEvents();
+      await fetchEvents();
       Alert.alert('Success', 'Event created successfully!');
     } catch (err) {
       console.error('Error:', err);
@@ -225,6 +275,22 @@ export default function EventsScreen() {
               : e
           )
         );
+      }
+      
+      // Refresh attendees for this event
+      const { data, error } = await api.getEventAttendees(eventId);
+      if (!error && data) {
+        const attendees = data
+          .slice(0, 3)
+          .map((a: any) => {
+            const profile = Array.isArray(a.profile) ? a.profile[0] : a.profile;
+            return {
+              id: profile?.id || a.user_id,
+              name: profile?.name || 'Anonymous',
+              avatar_url: profile?.avatar_url,
+            };
+          });
+        setEventAttendees((prev) => ({ ...prev, [eventId]: attendees }));
       }
     } catch (err) {
       console.error('Error:', err);
@@ -369,22 +435,37 @@ export default function EventsScreen() {
 
                       {/* Attendee Avatars */}
                       <View className="flex-row items-center mt-3">
-                        {Array.from({ length: Math.min(event.attendee_count, 3) }).map((_, i) => (
-                          <View
-                            key={i}
-                            className="w-8 h-8 rounded-full bg-[#1E3A5F] items-center justify-center border-2 border-white"
-                            style={{ marginLeft: i > 0 ? -10 : 0 }}
-                          >
-                            <Text className="text-white text-xs font-semibold">
-                              {String.fromCharCode(65 + i)}
-                            </Text>
-                          </View>
-                        ))}
-                        {event.attendee_count > 3 && (
-                          <Text className={`ml-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                            +{event.attendee_count - 3}
-                          </Text>
-                        )}
+                        {eventAttendees[event.id] && eventAttendees[event.id].length > 0 ? (
+                          <>
+                            {eventAttendees[event.id].map((attendee, i) => (
+                              <View
+                                key={attendee.id}
+                                className="w-8 h-8 rounded-full bg-[#14b8a6] items-center justify-center border-2 border-white"
+                                style={{ marginLeft: i > 0 ? -10 : 0 }}
+                              >
+                                <Text className="text-white text-xs font-semibold">
+                                  {getInitials(attendee.name)}
+                                </Text>
+                              </View>
+                            ))}
+                            {event.attendee_count > eventAttendees[event.id].length && (
+                              <Text className={`ml-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                +{event.attendee_count - eventAttendees[event.id].length}
+                              </Text>
+                            )}
+                          </>
+                        ) : event.attendee_count > 0 ? (
+                          // Fallback: show placeholder if attendees not loaded yet
+                          Array.from({ length: Math.min(event.attendee_count, 3) }).map((_, i) => (
+                            <View
+                              key={i}
+                              className="w-8 h-8 rounded-full bg-[#14b8a6] items-center justify-center border-2 border-white"
+                              style={{ marginLeft: i > 0 ? -10 : 0 }}
+                            >
+                              <Text className="text-white text-xs font-semibold">?</Text>
+                            </View>
+                          ))
+                        ) : null}
                       </View>
 
                       {/* Action Buttons */}
