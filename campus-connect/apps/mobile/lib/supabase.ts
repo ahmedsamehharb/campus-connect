@@ -231,6 +231,28 @@ export const api = {
     return { error };
   },
 
+  getEventAttendees: async (eventId: string) => {
+    const { data, error } = await supabase
+      .from('event_attendees')
+      .select(`
+        user_id,
+        joined_at,
+        profile:profiles(id, name, avatar_url, major, year)
+      `)
+      .eq('event_id', eventId)
+      .order('joined_at', { ascending: false });
+    return { data, error };
+  },
+
+  getEventOrganizer: async (organizerId: string) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, name, avatar_url, major, year')
+      .eq('id', organizerId)
+      .single();
+    return { data, error };
+  },
+
   // Posts
   getPosts: async (userId?: string) => {
     const { data, error } = await supabase
