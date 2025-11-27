@@ -55,14 +55,12 @@ export const auth = {
 
         if (profileError) {
           console.warn('Profile creation warning:', profileError.message);
-          // Don't return error here - the auth user was created successfully
-          // The profile might fail due to RLS policies, but user can still sign in
         }
       }
 
       return { data, error: null };
     } catch (err: any) {
-      console.error('SignUp exception:', err);
+      console.error('SignUp error:', err);
       return { data: null, error: { message: err.message || 'Signup failed' } };
     }
   },

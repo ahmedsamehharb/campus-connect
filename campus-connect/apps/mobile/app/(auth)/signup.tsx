@@ -8,7 +8,6 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { Link, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -22,33 +21,37 @@ export default function SignUpScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
   const { signUp } = useAuth();
 
   const handleSignUp = async () => {
+    // Clear previous message
+    setMessage(null);
+    
     // Trim inputs
     const trimmedName = name.trim();
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedPassword = password;
 
     if (!trimmedName || !trimmedEmail || !trimmedPassword || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all fields');
+      setMessage({ type: 'error', text: 'Please fill in all fields' });
       return;
     }
 
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(trimmedEmail)) {
-      Alert.alert('Error', 'Please enter a valid email address');
+      setMessage({ type: 'error', text: 'Please enter a valid email address' });
       return;
     }
 
     if (trimmedPassword !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
+      setMessage({ type: 'error', text: 'Passwords do not match' });
       return;
     }
 
     if (trimmedPassword.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+      setMessage({ type: 'error', text: 'Password must be at least 6 characters' });
       return;
     }
 
@@ -65,18 +68,21 @@ export default function SignUpScreen() {
         } else if (error.message?.includes('invalid')) {
           errorMessage = 'Please check your email address and try again.';
         }
-        Alert.alert('Sign Up Failed', errorMessage);
+        setMessage({ type: 'error', text: errorMessage });
       } else {
-        // Success - check if email verification is required
-        Alert.alert(
-          'Account Created! 🎉',
-          'Your account has been created successfully. You can now sign in with your email and password.',
-          [{ text: 'Sign In', onPress: () => router.replace('/(auth)/login') }]
-        );
+        // Success - show message and navigate after delay
+        setMessage({ 
+          type: 'success', 
+          text: 'Account created successfully! Redirecting to sign in...' 
+        });
+        // Navigate to login after 2 seconds
+        setTimeout(() => {
+          router.replace('/(auth)/login');
+        }, 2000);
       }
     } catch (err: any) {
       console.error('Signup error:', err);
-      Alert.alert('Error', 'Something went wrong. Please try again.');
+      setMessage({ type: 'error', text: 'Something went wrong. Please try again.' });
     } finally {
       setIsLoading(false);
     }
@@ -121,6 +127,31 @@ export default function SignUpScreen() {
               Join Campus Connect and get started
             </Text>
           </Animated.View>
+
+          {/* Message Display */}
+          {message && (
+            <View
+              style={{
+                backgroundColor: message.type === 'error' ? '#fef2f2' : '#f0fdf4',
+                borderWidth: 1,
+                borderColor: message.type === 'error' ? '#fecaca' : '#bbf7d0',
+                borderRadius: 12,
+                padding: 16,
+                marginBottom: 16,
+              }}
+            >
+              <Text
+                style={{
+                  color: message.type === 'error' ? '#dc2626' : '#16a34a',
+                  fontSize: 14,
+                  fontWeight: '600',
+                  textAlign: 'center',
+                }}
+              >
+                {message.text}
+              </Text>
+            </View>
+          )}
 
           {/* Form */}
           <Animated.View entering={FadeInDown.duration(800).delay(150).springify()}>
@@ -233,8 +264,13 @@ export default function SignUpScreen() {
             <TouchableOpacity
               onPress={handleSignUp}
               disabled={isLoading}
-              className={`bg-blue-500 py-4 rounded-2xl items-center mb-4 ${isLoading ? 'opacity-70' : ''}`}
               style={{
+                backgroundColor: '#3b82f6',
+                paddingVertical: 16,
+                borderRadius: 16,
+                alignItems: 'center',
+                marginBottom: 16,
+                opacity: isLoading ? 0.7 : 1,
                 shadowColor: '#3b82f6',
                 shadowOffset: { width: 0, height: 4 },
                 shadowOpacity: 0.3,
@@ -246,7 +282,7 @@ export default function SignUpScreen() {
               {isLoading ? (
                 <ActivityIndicator color="#ffffff" />
               ) : (
-                <Text className="text-white font-bold text-base">Create Account</Text>
+                <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>Create Account</Text>
               )}
             </TouchableOpacity>
 

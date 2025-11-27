@@ -194,3 +194,4 @@ New users attempting to register through the mobile app encounter errors and can
 | `Rate limit exceeded` | "Too many attempts. Please wait a few minutes and try again." |
 | Generic/Unknown | "Something went wrong. Please try again." |
 
+
