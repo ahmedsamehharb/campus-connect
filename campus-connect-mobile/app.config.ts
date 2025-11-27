@@ -1,0 +1,135 @@
+import { ExpoConfig, ConfigContext } from 'expo/config';
+
+export default ({ config }: ConfigContext): ExpoConfig => ({
+  ...config,
+  name: 'Campus Connect',
+  slug: 'campus-connect',
+  version: '1.0.0',
+  orientation: 'portrait',
+  icon: './assets/images/icon.png',
+  scheme: 'campusconnect',
+  userInterfaceStyle: 'automatic',
+  newArchEnabled: true,
+  
+  // Splash screen configuration
+  splash: {
+    image: './assets/images/splash.png',
+    resizeMode: 'contain',
+    backgroundColor: '#3B82F6',
+  },
+  
+  // iOS configuration
+  ios: {
+    supportsTablet: true,
+    bundleIdentifier: 'com.campusconnect.app',
+    buildNumber: '1',
+    infoPlist: {
+      NSCameraUsageDescription: 'Campus Connect needs access to your camera to take photos for your profile and posts.',
+      NSPhotoLibraryUsageDescription: 'Campus Connect needs access to your photo library to share images in posts and messages.',
+      NSLocationWhenInUseUsageDescription: 'Campus Connect uses your location to show nearby campus locations and transportation.',
+      NSCalendarsUsageDescription: 'Campus Connect can add events to your calendar.',
+      NSFaceIDUsageDescription: 'Campus Connect uses Face ID for secure login.',
+    },
+    associatedDomains: ['applinks:campusconnect.app'],
+    config: {
+      usesNonExemptEncryption: false,
+    },
+  },
+  
+  // Android configuration
+  android: {
+    adaptiveIcon: {
+      foregroundImage: './assets/images/adaptive-icon.png',
+      backgroundColor: '#3B82F6',
+    },
+    package: 'com.campusconnect.app',
+    versionCode: 1,
+    permissions: [
+      'android.permission.CAMERA',
+      'android.permission.READ_EXTERNAL_STORAGE',
+      'android.permission.WRITE_EXTERNAL_STORAGE',
+      'android.permission.ACCESS_FINE_LOCATION',
+      'android.permission.ACCESS_COARSE_LOCATION',
+      'android.permission.READ_CALENDAR',
+      'android.permission.WRITE_CALENDAR',
+      'android.permission.VIBRATE',
+      'android.permission.RECEIVE_BOOT_COMPLETED',
+      'android.permission.USE_BIOMETRIC',
+      'android.permission.USE_FINGERPRINT',
+    ],
+    intentFilters: [
+      {
+        action: 'VIEW',
+        autoVerify: true,
+        data: [
+          {
+            scheme: 'https',
+            host: 'campusconnect.app',
+            pathPrefix: '/',
+          },
+        ],
+        category: ['BROWSABLE', 'DEFAULT'],
+      },
+    ],
+  },
+  
+  // Web configuration
+  web: {
+    bundler: 'metro',
+    output: 'static',
+    favicon: './assets/images/favicon.png',
+  },
+  
+  // Plugins
+  plugins: [
+    'expo-router',
+    'expo-secure-store',
+    'expo-notifications',
+    'expo-local-authentication',
+    [
+      'expo-calendar',
+      {
+        calendarPermission: 'Campus Connect needs access to your calendar to add events.',
+      },
+    ],
+    [
+      'expo-image-picker',
+      {
+        photosPermission: 'Campus Connect needs access to your photos to share images.',
+        cameraPermission: 'Campus Connect needs access to your camera to take photos.',
+      },
+    ],
+  ],
+  
+  // Experiments
+  experiments: {
+    typedRoutes: true,
+  },
+  
+  // Extra configuration
+  extra: {
+    eas: {
+      projectId: process.env.EXPO_PUBLIC_PROJECT_ID,
+    },
+    supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
+    supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+  },
+  
+  // Owner (for EAS)
+  owner: 'campusconnect',
+  
+  // Updates configuration (for OTA updates)
+  updates: {
+    fallbackToCacheTimeout: 0,
+    url: 'https://u.expo.dev/your-project-id',
+  },
+  
+  // Runtime version for updates
+  runtimeVersion: {
+    policy: 'sdkVersion',
+  },
+});
+
+
+
+
