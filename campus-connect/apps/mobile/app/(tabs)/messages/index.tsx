@@ -17,8 +17,8 @@ import { router } from 'expo-router';
 import { Search, Edit, User, Users, MessageCircle, X, UserPlus } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useColorScheme } from '@/components/useColorScheme';
-import { useAuth } from '@/providers';
-import { api } from '@/lib/supabase';
+import { useAuth, useMessages } from '@/providers';
+import { api, supabase } from '@/lib/supabase';
 
 interface Participant {
   id: string;
@@ -52,6 +52,7 @@ interface UserSearchResult {
 
 export default function MessagesScreen() {
   const { user } = useAuth();
+  const { refreshUnreadCount } = useMessages();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   
@@ -85,6 +86,8 @@ export default function MessagesScreen() {
       }
       
       setConversations(data || []);
+      // Update global unread count
+      refreshUnreadCount();
     } catch (err) {
       console.error('Error:', err);
       setError('Failed to load messages');
@@ -92,11 +95,64 @@ export default function MessagesScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.id]);
+  }, [user?.id, refreshUnreadCount]);
 
   useEffect(() => {
     fetchConversations();
   }, [fetchConversations]);
+
+  // Subscribe to real-time conversation updates
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Subscribe to conversations and messages for real-time updates
+    const conversationsChannel = api.subscribeToConversations(user.id, async (updatedConversation) => {
+      // Fetch updated conversation details
+      const { data: updatedData } = await api.getConversations(user.id);
+      if (updatedData) {
+        setConversations(updatedData);
+        // Update global unread count
+        refreshUnreadCount();
+      }
+    });
+
+    // Also subscribe to messages table to update last message preview
+    const messagesChannel = supabase
+      .channel(`conversations-messages:${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+        },
+        async () => {
+          // Refresh conversations list to update last message and timestamps
+          await fetchConversations();
+          // Update global unread count
+          refreshUnreadCount();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+        },
+        async () => {
+          // Update when messages are marked as read
+          await fetchConversations();
+          refreshUnreadCount();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      api.unsubscribeFromConversations(conversationsChannel);
+      supabase.removeChannel(messagesChannel);
+    };
+  }, [user?.id, fetchConversations]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

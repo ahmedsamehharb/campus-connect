@@ -12,10 +12,32 @@ export default function AuthCallbackScreen() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
+        // Log all params for debugging
+        console.log('Callback params:', params);
+        console.log('All param keys:', Object.keys(params));
+        
         // Check if we have tokens in the URL (from email verification)
-        const accessToken = params.access_token as string;
-        const refreshToken = params.refresh_token as string;
-        const type = params.type as string;
+        // Supabase might send them as access_token, refresh_token, or in hash fragments
+        const accessToken = (params.access_token || params['#access_token'] || params.access_token) as string;
+        const refreshToken = (params.refresh_token || params['#refresh_token'] || params.refresh_token) as string;
+        const type = (params.type || params['#type']) as string;
+
+        console.log('Extracted tokens:', { 
+          hasAccessToken: !!accessToken, 
+          hasRefreshToken: !!refreshToken, 
+          type 
+        });
+
+        // If no params at all, show error
+        if (!accessToken && !refreshToken && !type) {
+          console.warn('No callback parameters found');
+          setStatus('error');
+          setMessage('Invalid reset link. Please request a new password reset.');
+          setTimeout(() => {
+            router.replace('/(auth)/login');
+          }, 3000);
+          return;
+        }
 
         if (type === 'signup' || type === 'email_change' || type === 'recovery') {
           if (accessToken && refreshToken) {
@@ -29,13 +51,25 @@ export default function AuthCallbackScreen() {
               throw error;
             }
 
-            setStatus('success');
-            setMessage('Email verified successfully! Redirecting to login...');
-            
-            // Redirect to login after 2 seconds
-            setTimeout(() => {
-              router.replace('/(auth)/login');
-            }, 2000);
+            // Handle password recovery differently
+            if (type === 'recovery') {
+              setStatus('success');
+              setMessage('Password reset link verified! Redirecting...');
+              
+              // Redirect to reset password screen after 2 seconds
+              setTimeout(() => {
+                router.replace('/(auth)/reset-password');
+              }, 2000);
+            } else {
+              // For signup and email_change, redirect to login
+              setStatus('success');
+              setMessage('Email verified successfully! Redirecting to login...');
+              
+              // Redirect to login after 2 seconds
+              setTimeout(() => {
+                router.replace('/(auth)/login');
+              }, 2000);
+            }
           } else {
             // No tokens, check if already verified
             const { data: { session } } = await supabase.auth.getSession();
@@ -54,13 +88,40 @@ export default function AuthCallbackScreen() {
               }, 2000);
             }
           }
-        } else {
+        } else if (type) {
           // Unknown type, just redirect to login
+          console.warn('Unknown callback type:', type);
           setStatus('success');
           setMessage('Redirecting to login...');
           setTimeout(() => {
             router.replace('/(auth)/login');
           }, 2000);
+        } else {
+          // No type specified, try to handle as recovery if we have tokens
+          if (accessToken && refreshToken) {
+            console.log('No type specified, but tokens found. Attempting recovery flow...');
+            const { error } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+
+            if (error) {
+              throw error;
+            }
+
+            // Assume it's a recovery if we got here with tokens
+            setStatus('success');
+            setMessage('Password reset link verified! Redirecting...');
+            setTimeout(() => {
+              router.replace('/(auth)/reset-password');
+            }, 2000);
+          } else {
+            setStatus('error');
+            setMessage('Invalid reset link. Please request a new password reset.');
+            setTimeout(() => {
+              router.replace('/(auth)/login');
+            }, 3000);
+          }
         }
       } catch (error: any) {
         console.error('Auth callback error:', error);

@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  AppState,
 } from 'react-native';
 import { useLocalSearchParams, Stack, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -23,6 +24,8 @@ interface Message {
   sender_id: string;
   created_at: string;
   read: boolean;
+  status?: 'sent' | 'delivered' | 'read';
+  read_at?: string;
   sender?: {
     id: string;
     name: string;
@@ -52,7 +55,14 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [messageText, setMessageText] = useState('');
+  const [isOnline, setIsOnline] = useState<boolean>(false);
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const scrollViewRef = useRef<ScrollView>(null);
+  const presenceChannelRef = useRef<any>(null);
+  const presenceSubscriptionRef = useRef<any>(null);
+  const typingChannelRef = useRef<any>(null);
+  const typingSubscriptionRef = useRef<any>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const currentUserId = user?.id;
 
@@ -106,18 +116,22 @@ export default function ChatScreen() {
 
   // Subscribe to new messages (real-time)
   useEffect(() => {
-    if (!id) return;
+    if (!id || !currentUserId) return;
 
-    const channel = api.subscribeToMessages(id, (newMessage) => {
+    const channel = api.subscribeToMessages(id, async (newMessage) => {
       setMessages((prev) => {
         // Avoid duplicates
         if (prev.some((m) => m.id === newMessage.id)) return prev;
         return [...prev, newMessage];
       });
       
-      // Mark as read if not from current user
+      // If message is from another user (incoming message)
       if (newMessage.sender_id !== currentUserId) {
-        api.markMessagesAsRead(id, currentUserId!);
+        // Update sender's message status to 'delivered' (so sender can see it)
+        // This will trigger a real-time update for the sender
+        await api.updateMessageStatus(newMessage.id, 'delivered');
+        // Mark conversation messages as read
+        await api.markMessagesAsRead(id, currentUserId);
       }
     });
 
@@ -126,6 +140,24 @@ export default function ChatScreen() {
     };
   }, [id, currentUserId]);
 
+  // Subscribe to message status updates
+  useEffect(() => {
+    if (!id) return;
+
+    const statusChannel = api.subscribeToMessageStatus(id, (messageId, status) => {
+      setMessages((prev) =>
+        prev.map((msg) => (msg.id === messageId ? { ...msg, status: status as 'sent' | 'delivered' | 'read' } : msg))
+      );
+    });
+
+    return () => {
+      api.unsubscribeFromMessageStatus(statusChannel);
+    };
+  }, [id]);
+
+  // Update message status to 'delivered' when recipient receives message
+  // This will be handled by the real-time subscription on the recipient's device
+
   // Scroll to bottom when messages change
   useEffect(() => {
     setTimeout(() => {
@@ -133,9 +165,151 @@ export default function ChatScreen() {
     }, 100);
   }, [messages]);
 
+  // Track presence and subscribe to online status
+  useEffect(() => {
+    if (!id || !currentUserId) return;
+
+    // Track our own presence
+    const presenceChannel = api.trackPresence(id, currentUserId);
+    presenceChannelRef.current = presenceChannel;
+
+    // Subscribe to other participants' presence (only for direct conversations)
+    if (conversation?.type === 'direct') {
+      const otherParticipant = getOtherParticipant();
+      if (otherParticipant) {
+        const subscriptionChannel = api.subscribeToPresence(id, (userId, online) => {
+          if (userId === otherParticipant.id) {
+            setIsOnline(online);
+          }
+        });
+        presenceSubscriptionRef.current = subscriptionChannel;
+      }
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if (presenceChannelRef.current) {
+        api.leavePresence(presenceChannelRef.current);
+        presenceChannelRef.current = null;
+      }
+      if (presenceSubscriptionRef.current) {
+        supabase.removeChannel(presenceSubscriptionRef.current);
+        presenceSubscriptionRef.current = null;
+      }
+    };
+  }, [id, currentUserId, conversation]);
+
+  // Handle app state changes (foreground/background)
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        // Leave presence when app goes to background
+        if (presenceChannelRef.current) {
+          api.leavePresence(presenceChannelRef.current);
+        }
+      } else if (nextAppState === 'active') {
+        // Rejoin presence when app becomes active
+        if (id && currentUserId) {
+          const presenceChannel = api.trackPresence(id, currentUserId);
+          presenceChannelRef.current = presenceChannel;
+        }
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [id, currentUserId]);
+
+  // Typing indicator subscription
+  useEffect(() => {
+    if (!id || !currentUserId) return;
+
+    // Create typing channel for sending and subscribe to it
+    const typingChannel = supabase.channel(`typing:${id}`);
+    typingChannel.subscribe();
+    typingChannelRef.current = typingChannel;
+
+    // Subscribe to typing indicators from others
+    const subscriptionChannel = api.subscribeToTyping(id, (userId, isTyping) => {
+      // Don't show typing indicator for current user
+      if (userId === currentUserId) return;
+
+      setTypingUsers((prev) => {
+        if (isTyping) {
+          return prev.includes(userId) ? prev : [...prev, userId];
+        } else {
+          return prev.filter((id) => id !== userId);
+        }
+      });
+    });
+
+    typingSubscriptionRef.current = subscriptionChannel;
+
+    return () => {
+      api.unsubscribeFromTyping(subscriptionChannel);
+      if (typingChannelRef.current) {
+        supabase.removeChannel(typingChannelRef.current);
+        typingChannelRef.current = null;
+      }
+      typingSubscriptionRef.current = null;
+    };
+  }, [id, currentUserId]);
+
+  // Auto-hide typing indicator after 3 seconds
+  useEffect(() => {
+    if (typingUsers.length > 0) {
+      const timeout = setTimeout(() => {
+        setTypingUsers([]);
+      }, 3000);
+
+      return () => clearTimeout(timeout);
+    }
+  }, [typingUsers]);
+
+  // Send typing indicator when user types
+  const handleTyping = useCallback(() => {
+    if (!id || !currentUserId || !typingChannelRef.current) return;
+
+    // Clear existing timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    // Send typing indicator via the channel
+    typingChannelRef.current.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: { user_id: currentUserId, is_typing: true },
+    });
+
+    // Clear typing indicator after 2 seconds of inactivity
+    typingTimeoutRef.current = setTimeout(() => {
+      if (typingChannelRef.current) {
+        typingChannelRef.current.send({
+          type: 'broadcast',
+          event: 'typing',
+          payload: { user_id: currentUserId, is_typing: false },
+        });
+      }
+    }, 2000);
+  }, [id, currentUserId]);
+
   // Send message
   const sendMessage = async () => {
     if (!messageText.trim() || !id || !currentUserId || sending) return;
+
+    // Stop typing indicator
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    if (typingChannelRef.current) {
+      typingChannelRef.current.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { user_id: currentUserId, is_typing: false },
+      });
+    }
 
     setSending(true);
     const content = messageText.trim();
@@ -162,13 +336,18 @@ export default function ChatScreen() {
     }
   };
 
-  // Get conversation title
+  // Get conversation title and other participant
+  const getOtherParticipant = () => {
+    if (!conversation) return null;
+    return conversation.participants.find((p) => p.id !== currentUserId);
+  };
+
   const getTitle = () => {
     if (!conversation) return 'Chat';
     if (conversation.type === 'group' && conversation.name) {
       return conversation.name;
     }
-    const otherParticipant = conversation.participants.find((p) => p.id !== currentUserId);
+    const otherParticipant = getOtherParticipant();
     return otherParticipant?.name || 'Chat';
   };
 
@@ -220,11 +399,36 @@ export default function ChatScreen() {
     <SafeAreaView className={`flex-1 ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`} edges={['bottom']}>
       <Stack.Screen
         options={{
-          title: getTitle(),
+          title: '',
           headerLeft: () => (
             <TouchableOpacity onPress={() => router.back()} className="p-2">
               <ChevronLeft size={24} color={isDark ? '#FFFFFF' : '#374151'} />
             </TouchableOpacity>
+          ),
+          headerTitle: () => (
+            <View className="flex-row items-center">
+              <Text className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                {getTitle()}
+              </Text>
+              {conversation?.type === 'direct' && (
+                <View className="ml-2 flex-row items-center">
+                  <View
+                    className={`w-2 h-2 rounded-full ${
+                      isOnline ? 'bg-green-500' : 'bg-gray-400'
+                    }`}
+                    style={{
+                      shadowColor: isOnline ? '#10b981' : '#9ca3af',
+                      shadowOffset: { width: 0, height: 0 },
+                      shadowOpacity: 0.8,
+                      shadowRadius: 4,
+                    }}
+                  />
+                  <Text className={`text-xs ml-1.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    {isOnline ? 'Online' : 'Offline'}
+                  </Text>
+                </View>
+              )}
+            </View>
           ),
         }}
       />
@@ -302,16 +506,56 @@ export default function ChatScreen() {
                           {message.content}
                         </Text>
                       </View>
-                      <Text
-                        className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}
-                      >
-                        {formatTime(message.created_at)}
-                      </Text>
+                      <View className={`flex-row items-center ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
+                        <Text
+                          className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}
+                        >
+                          {formatTime(message.created_at)}
+                        </Text>
+                        {/* Message status for outgoing messages */}
+                        {isOwnMessage && message.status && (
+                          <Text
+                            className={`text-xs mt-1 ml-2 ${
+                              isDark ? 'text-gray-500' : 'text-gray-400'
+                            }`}
+                          >
+                            {message.status === 'read'
+                              ? 'Read'
+                              : message.status === 'delivered'
+                              ? 'Delivered'
+                              : 'Sent'}
+                          </Text>
+                        )}
+                      </View>
                     </View>
                   );
                 })}
               </View>
             ))
+          )}
+
+          {/* Typing Indicator */}
+          {typingUsers.length > 0 && (
+            <View className="flex-row items-center mb-2 px-2">
+              <View
+                className={`px-4 py-2 rounded-2xl ${
+                  isDark ? 'bg-gray-800' : 'bg-white'
+                }`}
+                style={{
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.05,
+                  shadowRadius: 2,
+                  elevation: 1,
+                }}
+              >
+                <Text className={`italic ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  {typingUsers.length === 1 && conversation?.type === 'direct'
+                    ? 'typing...'
+                    : 'Someone is typing...'}
+                </Text>
+              </View>
+            </View>
           )}
         </ScrollView>
 
@@ -329,7 +573,10 @@ export default function ChatScreen() {
               placeholder="Type a message..."
               placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
               value={messageText}
-              onChangeText={setMessageText}
+              onChangeText={(text) => {
+                setMessageText(text);
+                handleTyping();
+              }}
               multiline
               textAlignVertical="center"
               editable={!sending}

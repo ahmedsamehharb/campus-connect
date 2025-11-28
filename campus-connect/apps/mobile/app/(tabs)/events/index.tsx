@@ -80,7 +80,7 @@ const categoryColors: Record<string, { bg: string; text: string }> = {
 const defaultColors = { bg: '#f1f5f9', text: '#475569' };
 
 export default function EventsScreen() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   
@@ -209,7 +209,13 @@ export default function EventsScreen() {
     setCreating(true);
 
     try {
+      // Use provided date or default to today
       const eventDate = newEvent.date || new Date().toISOString().split('T')[0];
+      // Default time to 6:00 PM if not provided
+      const eventTime = '18:00:00';
+      
+      // Get organizer name from profile or user email
+      const organizerName = profile?.name || user.email?.split('@')[0] || 'Event Organizer';
       
       const { data, error } = await supabase
         .from('events')
@@ -217,17 +223,18 @@ export default function EventsScreen() {
           title: newEvent.title.trim(),
           description: newEvent.description.trim() || 'Join this event and meet fellow students!',
           date: eventDate,
+          time: eventTime,
           location: newEvent.location.trim(),
           category: newEvent.category,
           max_attendees: newEvent.max_attendees ? parseInt(newEvent.max_attendees) : null,
-          organizer_id: user.id,
+          organizer: organizerName,
         })
         .select()
         .single();
 
       if (error) {
         console.error('Error creating event:', error);
-        Alert.alert('Error', 'Failed to create event. Please try again.');
+        Alert.alert('Error', error.message || 'Failed to create event. Please try again.');
         return;
       }
 

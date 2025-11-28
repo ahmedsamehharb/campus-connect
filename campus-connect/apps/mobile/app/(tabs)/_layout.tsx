@@ -3,11 +3,11 @@ import { View, Text } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Home, Users, Calendar, MessageCircle, Menu } from 'lucide-react-native';
 import { useColorScheme } from '@/components/useColorScheme';
-import { useNotifications } from '@/providers';
+import { useMessages } from '@/providers';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
-  const { unreadCount } = useNotifications();
+  const { unreadMessagesCount } = useMessages();
   const isDark = colorScheme === 'dark';
 
   const activeColor = '#3b82f6';
@@ -101,10 +101,10 @@ export default function TabLayout() {
               <View className={`p-1.5 rounded-xl ${focused ? 'bg-blue-50' : ''}`}>
                 <MessageCircle size={22} color={color} strokeWidth={focused ? 2.5 : 2} />
               </View>
-              {unreadCount > 0 && (
+              {unreadMessagesCount > 0 && (
                 <View className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 rounded-full items-center justify-center px-1">
                   <Text className="text-white text-[10px] font-bold">
-                    {unreadCount > 99 ? '99+' : unreadCount}
+                    {unreadMessagesCount > 99 ? '99+' : unreadMessagesCount}
                   </Text>
                 </View>
               )}

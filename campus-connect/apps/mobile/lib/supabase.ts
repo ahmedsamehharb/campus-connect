@@ -100,6 +100,59 @@ export const auth = {
     const { data, error } = await supabase.auth.refreshSession();
     return { data, error };
   },
+
+  resetPassword: async (email: string) => {
+    try {
+      // Construct redirect URL for password reset
+      // Supabase requires a web URL (https://) for email links
+      // For development, use localhost web URL that can redirect to app
+      // For production, use your app's web URL
+      // The app will handle the deep link from the web redirect
+      const redirectTo = __DEV__
+        ? 'http://localhost:8081/auth/callback?type=recovery'
+        : 'https://campusconnect.app/auth/callback?type=recovery'; // Update with your actual web URL
+
+      console.log('Sending password reset email with redirectTo:', redirectTo);
+
+      const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo,
+      });
+
+      // Always return success (never reveal if email exists) for security
+      if (error) {
+        // Log error but don't expose it to user
+        console.error('Password reset error:', error);
+        // Still return success to prevent email enumeration
+        return { data: null, error: null };
+      }
+
+      return { data, error: null };
+    } catch (err: any) {
+      console.error('Password reset error:', err);
+      // Return success even on error to prevent email enumeration
+      return { data: null, error: null };
+    }
+  },
+
+  updatePassword: async (newPassword: string) => {
+    try {
+      const { data, error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (error) {
+        return { data: null, error };
+      }
+
+      // Sign out the user after successful password update
+      await supabase.auth.signOut();
+
+      return { data, error: null };
+    } catch (err: any) {
+      console.error('Update password error:', err);
+      return { data: null, error: { message: err.message || 'Failed to update password' } };
+    }
+  },
 };
 
 // Re-export types from types file
@@ -478,6 +531,8 @@ export const api = {
         content,
         created_at,
         read,
+        status,
+        read_at,
         sender_id,
         sender:profiles(id, name, avatar_url)
       `
@@ -501,6 +556,7 @@ export const api = {
         conversation_id: conversationId,
         sender_id: senderId,
         content: content,
+        status: 'sent', // Set initial status to 'sent'
       })
       .select(
         `
@@ -509,6 +565,8 @@ export const api = {
         content,
         created_at,
         read,
+        status,
+        read_at,
         sender_id,
         sender:profiles(id, name, avatar_url)
       `
@@ -530,7 +588,11 @@ export const api = {
   markMessagesAsRead: async (conversationId: string, userId: string) => {
     const { error } = await supabase
       .from('messages')
-      .update({ read: true })
+      .update({ 
+        read: true,
+        status: 'read',
+        read_at: new Date().toISOString(),
+      })
       .eq('conversation_id', conversationId)
       .neq('sender_id', userId)
       .eq('read', false);
@@ -579,6 +641,8 @@ export const api = {
               content,
               created_at,
               read,
+              status,
+              read_at,
               sender_id,
               sender:profiles(id, name, avatar_url)
             `
@@ -600,6 +664,244 @@ export const api = {
 
   unsubscribeFromMessages: (conversationId: string) => {
     supabase.removeChannel(supabase.channel(`messages:${conversationId}`));
+  },
+
+  // Presence/Online Status
+  trackPresence: (conversationId: string, userId: string) => {
+    const channel = supabase.channel(`presence:${conversationId}`, {
+      config: {
+        presence: {
+          key: userId,
+        },
+      },
+    });
+
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        // Handle presence sync
+      })
+      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+        // Handle user joining
+      })
+      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+        // Handle user leaving
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({
+            user_id: userId,
+            online_at: new Date().toISOString(),
+          });
+        }
+      });
+
+    return channel;
+  },
+
+  subscribeToPresence: (
+    conversationId: string,
+    callback: (userId: string, isOnline: boolean) => void
+  ) => {
+    const channel = supabase.channel(`presence:${conversationId}`);
+
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        // Notify about all users in presence
+        Object.keys(state).forEach((key) => {
+          const presences = state[key];
+          if (presences && presences.length > 0) {
+            const presence = presences[0] as any;
+            callback(presence.user_id, true);
+          }
+        });
+      })
+      .on('presence', { event: 'join' }, ({ newPresences }) => {
+        newPresences.forEach((presence: any) => {
+          callback(presence.user_id, true);
+        });
+      })
+      .on('presence', { event: 'leave' }, ({ leftPresences }) => {
+        leftPresences.forEach((presence: any) => {
+          callback(presence.user_id, false);
+        });
+      })
+      .subscribe();
+
+    return channel;
+  },
+
+  leavePresence: (channel: any) => {
+    if (channel) {
+      channel.untrack();
+      supabase.removeChannel(channel);
+    }
+  },
+
+  // Typing Indicators
+  sendTypingIndicator: async (
+    conversationId: string,
+    userId: string,
+    isTyping: boolean
+  ) => {
+    // Get or create typing channel for this conversation
+    const channelName = `typing:${conversationId}`;
+    let channel = supabase.channel(channelName);
+    
+    // Ensure channel is subscribed before sending
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        channel.send({
+          type: 'broadcast',
+          event: 'typing',
+          payload: { user_id: userId, is_typing: isTyping },
+        });
+      }
+    });
+  },
+
+  getTypingChannel: (conversationId: string) => {
+    return supabase.channel(`typing:${conversationId}`);
+  },
+
+  subscribeToTyping: (
+    conversationId: string,
+    callback: (userId: string, isTyping: boolean) => void
+  ) => {
+    const channel = supabase.channel(`typing:${conversationId}`);
+
+    channel
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        callback(payload.payload.user_id, payload.payload.is_typing);
+      })
+      .subscribe();
+
+    return channel;
+  },
+
+  unsubscribeFromTyping: (channel: any) => {
+    if (channel) {
+      supabase.removeChannel(channel);
+    }
+  },
+
+  // Message Status
+  updateMessageStatus: async (
+    messageId: string,
+    status: 'sent' | 'delivered' | 'read'
+  ) => {
+    const updateData: any = { status };
+    if (status === 'read') {
+      updateData.read_at = new Date().toISOString();
+      updateData.read = true;
+    }
+
+    const { data, error } = await supabase
+      .from('messages')
+      .update(updateData)
+      .eq('id', messageId)
+      .select()
+      .single();
+
+    return { data, error };
+  },
+
+  subscribeToMessageStatus: (
+    conversationId: string,
+    callback: (messageId: string, status: string) => void
+  ) => {
+    const channel = supabase
+      .channel(`message-status:${conversationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          if (payload.new.status && payload.old.status !== payload.new.status) {
+            callback(payload.new.id, payload.new.status);
+          }
+        }
+      )
+      .subscribe();
+
+    return channel;
+  },
+
+  unsubscribeFromMessageStatus: (channel: any) => {
+    if (channel) {
+      supabase.removeChannel(channel);
+    }
+  },
+
+  // Real-time Conversations List
+  subscribeToConversations: (
+    userId: string,
+    callback: (conversation: any) => void
+  ) => {
+    const channel = supabase
+      .channel(`conversations:${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'conversations',
+        },
+        async (payload) => {
+          // Check if user is a participant
+          const { data: participants } = await supabase
+            .from('conversation_participants')
+            .select('conversation_id')
+            .eq('conversation_id', payload.new.id)
+            .eq('user_id', userId);
+
+          if (participants && participants.length > 0) {
+            callback(payload.new);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+        },
+        async (payload) => {
+          // Check if message is in user's conversation
+          const { data: participants } = await supabase
+            .from('conversation_participants')
+            .select('conversation_id')
+            .eq('conversation_id', payload.new.conversation_id)
+            .eq('user_id', userId);
+
+          if (participants && participants.length > 0) {
+            // Fetch updated conversation data
+            const { data: conversation } = await supabase
+              .from('conversations')
+              .select('*')
+              .eq('id', payload.new.conversation_id)
+              .single();
+
+            if (conversation) {
+              callback(conversation);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return channel;
+  },
+
+  unsubscribeFromConversations: (channel: any) => {
+    if (channel) {
+      supabase.removeChannel(channel);
+    }
   },
 
   // Create a new direct conversation

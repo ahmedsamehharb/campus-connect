@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GraduationCap, Mail, Lock, Fingerprint } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
@@ -169,7 +169,10 @@ export default function LoginScreen() {
             )}
 
             {/* Forgot Password */}
-            <TouchableOpacity className="items-center mb-8">
+            <TouchableOpacity 
+              className="items-center mb-8"
+              onPress={() => router.push('/(auth)/forgot-password')}
+            >
               <Text className="text-blue-500 font-medium">Forgot Password?</Text>
             </TouchableOpacity>
           </Animated.View>
